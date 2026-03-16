@@ -315,23 +315,29 @@ if st.button("Executar campanha", type="primary"):
         progress.progress(min(pct, 100))
         status_text.info(f"Processando: {done}/{total}")
 
-    result_df, log_rows = process_campaign(
-        df=working_df,
-        email_col=email_col,
-        subject_template=subject_template,
-        body_template=body_template,
-        sender_email=smtp_sender,
-        smtp_send_callable=send_email,
-        smtp_client_factory=smtp_client_factory,
-        max_per_run=int(max_per_run),
-        min_interval=float(min_interval),
-        max_interval=float(max_interval),
-        simulate=simulate_mode,
-        progress_callback=on_progress,
-        sleep_callable=time.sleep,
-        random_callable=random.uniform,
-        sqlite_path=sqlite_path if persist_sqlite else None,
-    )
+    try:
+        result_df, log_rows = process_campaign(
+            df=working_df,
+            email_col=email_col,
+            subject_template=subject_template,
+            body_template=body_template,
+            sender_email=smtp_sender,
+            smtp_send_callable=send_email,
+            smtp_client_factory=smtp_client_factory,
+            max_per_run=int(max_per_run),
+            min_interval=float(min_interval),
+            max_interval=float(max_interval),
+            simulate=simulate_mode,
+            progress_callback=on_progress,
+            sleep_callable=time.sleep,
+            random_callable=random.uniform,
+            sqlite_path=sqlite_path if persist_sqlite else None,
+        )
+    except Exception as exc:
+        progress.empty()
+        status_text.empty()
+        st.error(f"Falha ao iniciar a campanha: {exc}")
+        st.stop()
 
     st.session_state.df_result = result_df
     st.session_state.log_rows = log_rows

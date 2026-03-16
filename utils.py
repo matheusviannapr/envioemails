@@ -114,10 +114,14 @@ def process_campaign(
     done = 0
 
     smtp_client = None
-    if not simulate and smtp_client_factory:
-        smtp_client = smtp_client_factory()
 
     try:
+        if not simulate and smtp_client_factory:
+            try:
+                smtp_client = smtp_client_factory()
+            except Exception as exc:  # noqa: BLE001 - erro de conexão/autenticação SMTP
+                raise ConnectionError(f"Falha ao autenticar/conectar no SMTP: {exc}") from exc
+
         for idx in pending_indices:
             row = working_df.loc[idx].to_dict()
             recipient = str(row.get(email_col, "")).strip()
