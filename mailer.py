@@ -1,4 +1,4 @@
-"""Envio de e-mails via SMTP SSL (Titan ou compatível)."""
+"""Envio de e-mails via SMTP com STARTTLS (Titan ou compatível)."""
 
 import smtplib
 import ssl
@@ -11,9 +11,12 @@ class SMTPSendError(Exception):
 
 
 def build_smtp_client(host: str, port: int, username: str, password: str):
-    """Cria cliente SMTP SSL autenticado."""
+    """Cria cliente SMTP autenticado com STARTTLS."""
     context = ssl.create_default_context()
-    client = smtplib.SMTP_SSL(host=host, port=port, context=context, timeout=30)
+    client = smtplib.SMTP(host=host, port=port, timeout=30)
+    client.ehlo()
+    client.starttls(context=context)
+    client.ehlo()
     client.login(username, password)
     return client
 
@@ -27,7 +30,7 @@ def send_email(
     recipient: str,
     subject: str,
     body: str,
-    smtp_client: Optional[smtplib.SMTP_SSL] = None,
+    smtp_client: Optional[smtplib.SMTP] = None,
 ) -> None:
     """Envia e-mail de texto simples. Reutiliza cliente se fornecido."""
     msg = EmailMessage()
