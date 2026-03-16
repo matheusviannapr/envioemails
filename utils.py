@@ -67,6 +67,8 @@ def validate_campaign_inputs(
 
     if not smtp_user or not smtp_password:
         errors.append("Credenciais SMTP obrigatórias.")
+    elif "@" not in smtp_user or smtp_user.count("@") != 1:
+        errors.append("'email_user' deve ser um endereço de e-mail completo.")
 
     if max_per_run < 1 or max_per_run > 30:
         errors.append("Máximo por execução deve estar entre 1 e 30.")
