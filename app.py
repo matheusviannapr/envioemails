@@ -234,6 +234,7 @@ if st.session_state.log_rows:
         mime="text/csv",
     )
 
+pending_labels = sorted(str(v) for v in STATUS_PENDING_VALUES if v is not None)
 st.caption(
-    f"Status considerados pendentes para envio: {', '.join(sorted(STATUS_PENDING_VALUES))}"
+    f"Status considerados pendentes para envio: {', '.join(['(vazio)'] + pending_labels)}"
 )
