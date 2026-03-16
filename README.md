@@ -7,9 +7,10 @@ Aplicativo em Python para execução de campanhas de e-mail **autorizadas** via 
 ## Funcionalidades
 
 - Upload de CSV com colunas arbitrárias.
+- Modo alternativo com planilha editável no app (sem CSV), com coluna de e-mail + campos variáveis dinâmicos.
 - Prévia da tabela no app.
-- Seleção da coluna de e-mail.
-- Templates com placeholders `{{nome_coluna}}` no assunto e corpo.
+- Seleção/definição da coluna de e-mail.
+- Templates com placeholders `{{nome_coluna}}` no assunto e corpo (assunto e corpo totalmente editáveis).
 - Prévia da mensagem renderizada por linha.
 - Envio apenas de registros com status vazio/pendente.
 - Limite máximo de **30 e-mails por execução**.
@@ -90,8 +91,8 @@ Maria,maria@empresa.com,Empresa B,,,
 
 ## Fluxo recomendado
 
-1. Faça upload do CSV.
-2. Selecione a coluna de e-mail.
+1. Escolha a origem dos dados: upload de CSV ou planilha editável no app.
+2. Se estiver no modo editável, defina coluna de e-mail, quantidade de campos (campo_1, campo_2, ...), gere a planilha e preencha/cole seus dados.
 3. Defina assunto e corpo com placeholders.
 4. Valide prévia em uma linha.
 5. Envie um e-mail de teste.
