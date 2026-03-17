@@ -44,6 +44,11 @@ class TitanClient:
         message = str(error)
         return "Executable doesn't exist" in message or "Please run the following command" in message
 
+
+    def _is_missing_system_lib_error(self, error: Exception) -> bool:
+        message = str(error)
+        return "error while loading shared libraries" in message or "libglib-2.0.so.0" in message
+
     def _run_install_command(self, command: list[str], allow_failure: bool = False) -> tuple[bool, str]:
         try:
             completed = subprocess.run(command, check=True, capture_output=True, text=True)
@@ -95,6 +100,12 @@ class TitanClient:
                     try:
                         self.browser = self.playwright.chromium.launch(headless=self.headless, args=self.chromium_args)
                     except Exception as relaunch_exc:
+                        if self._is_missing_system_lib_error(relaunch_exc):
+                            raise RuntimeError(
+                                "Chromium foi baixado, mas faltam bibliotecas do sistema (ex.: libglib). "
+                                "No Streamlit Cloud, adicione um arquivo packages.txt com dependências do Playwright "
+                                "e faça reboot/redeploy do app."
+                            ) from relaunch_exc
                         raise RuntimeError(
                             "A instalação automática foi executada, mas o Chromium ainda não iniciou. "
                             "No Streamlit Cloud, verifique o runtime e reinicie o app. "
@@ -109,6 +120,11 @@ class TitanClient:
                         f"Logs: {install_logs[:1200]}"
                     ) from exc
             else:
+                if self._is_missing_system_lib_error(exc):
+                    raise RuntimeError(
+                        "Faltam bibliotecas nativas do sistema para iniciar o Chromium (ex.: libglib). "
+                        "No Streamlit Cloud, use packages.txt com dependências do Playwright e redeploy."
+                    ) from exc
                 if self._is_missing_browser_error(exc):
                     raise RuntimeError(
                         "Chromium do Playwright não está instalado. "

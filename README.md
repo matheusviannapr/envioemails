@@ -48,5 +48,11 @@ streamlit run app.py
 
 - Erro `Executable doesn't exist` no Playwright:
   - **Streamlit Cloud**: mantenha `PLAYWRIGHT_AUTO_INSTALL=true`. O app tenta automaticamente `playwright install` + `playwright install chromium` e `playwright install-deps` (best effort).
-  - Se ainda falhar no Cloud, faça reboot/redeploy do app para novo runtime.
-  - **VPS/servidor**: execute `playwright install chromium` antes de rodar o app.
+  - Se aparecer erro de `shared libraries` (ex.: `libglib-2.0.so.0`), adicione `packages.txt` com libs do sistema e faça reboot/redeploy.
+  - **VPS/servidor**: execute `playwright install chromium` e instale libs de sistema necessárias.
+
+
+## packages.txt (Streamlit Cloud)
+
+Crie `packages.txt` na raiz com dependências de SO para Playwright/Chromium.
+Incluímos uma lista ampliada baseada em erros comuns no Streamlit Cloud (ex.: `libglib`, `libnspr4`, `libcups2`, `libatspi2.0-0`, `libwayland-client0`).

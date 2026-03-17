@@ -208,7 +208,7 @@ if st.button("Iniciar campanha"):
         )
     except Exception as exc:
         st.error(f"Falha ao executar campanha: {exc}")
-        st.info("No Streamlit Cloud a app tenta instalar Chromium automaticamente (playwright install/install-deps). Se falhar, reinicie o app. Em VPS, rode playwright install chromium.")
+        st.info("No Streamlit Cloud: além do auto-install, você precisa das libs do SO via packages.txt (ex.: libglib2.0-0, libnss3, libatk1.0-0, libx11-6). Depois faça reboot/redeploy.")
         st.stop()
 
     st.success("Execução finalizada.")
