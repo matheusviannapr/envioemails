@@ -17,5 +17,10 @@ class CampaignConfig:
     max_consecutive_errors: int = int(os.getenv("MAX_CONSECUTIVE_ERRORS", "5"))
     log_path: str = os.getenv("LOG_CSV_PATH", "log.csv")
     screenshot_dir: str = os.getenv("SCREENSHOT_DIR", "screenshots")
-    chromium_args: tuple[str, ...] = ("--no-sandbox", "--disable-dev-shm-usage")
+    chromium_args: tuple[str, ...] = (
+        "--no-sandbox", 
+        "--disable-dev-shm-usage",
+        "--disable-blink-features=AutomationControlled",
+        "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    )
     playwright_auto_install: bool = os.getenv("PLAYWRIGHT_AUTO_INSTALL", "true").lower() == "true"
