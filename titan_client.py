@@ -1,4 +1,6 @@
 import os
+import subprocess
+import sys
 import time
 from datetime import datetime
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
@@ -17,7 +19,15 @@ from titan_selectors import (
 
 
 class TitanClient:
-    def __init__(self, base_url: str, email: str, password: str, headless: bool, chromium_args: tuple[str, ...]):
+    def __init__(
+        self,
+        base_url: str,
+        email: str,
+        password: str,
+        headless: bool,
+        chromium_args: tuple[str, ...],
+        auto_install_browser: bool = True,
+    ):
         self.base_url = base_url
         self.email = email
         self.password = password
@@ -27,19 +37,43 @@ class TitanClient:
         self.browser = None
         self.context = None
         self.page = None
+        self.auto_install_browser = auto_install_browser
+
+    def _is_missing_browser_error(self, error: Exception) -> bool:
+        message = str(error)
+        return "Executable doesn't exist" in message or "Please run the following command" in message
+
+    def _install_chromium(self) -> None:
+        subprocess.run(
+            [sys.executable, "-m", "playwright", "install", "chromium"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
 
     def start(self):
         self.playwright = sync_playwright().start()
         try:
             self.browser = self.playwright.chromium.launch(headless=self.headless, args=self.chromium_args)
         except Exception as exc:
-            message = str(exc)
-            if "Executable doesn't exist" in message or "Please run the following command" in message:
-                raise RuntimeError(
-                    "Chromium do Playwright não está instalado no servidor. "
-                    "Execute: playwright install chromium"
-                ) from exc
-            raise
+            if self.auto_install_browser and self._is_missing_browser_error(exc):
+                try:
+                    self._install_chromium()
+                    self.browser = self.playwright.chromium.launch(headless=self.headless, args=self.chromium_args)
+                except Exception as install_exc:
+                    raise RuntimeError(
+                        "Chromium do Playwright não está instalado e a instalação automática falhou. "
+                        "No Streamlit Cloud, mantenha PLAYWRIGHT_AUTO_INSTALL=true; "
+                        "em VPS, execute: playwright install chromium"
+                    ) from install_exc
+            else:
+                if self._is_missing_browser_error(exc):
+                    raise RuntimeError(
+                        "Chromium do Playwright não está instalado. "
+                        "No Streamlit Cloud, habilite PLAYWRIGHT_AUTO_INSTALL=true; "
+                        "em VPS, execute: playwright install chromium"
+                    ) from exc
+                raise
 
         self.context = self.browser.new_context()
         self.page = self.context.new_page()

@@ -208,7 +208,7 @@ if st.button("Iniciar campanha"):
         )
     except Exception as exc:
         st.error(f"Falha ao executar campanha: {exc}")
-        st.info("Se for ambiente novo, execute no servidor: `playwright install chromium`")
+        st.info("Ambiente novo: no Streamlit Cloud deixe `PLAYWRIGHT_AUTO_INSTALL=true`; em VPS use `playwright install chromium`.")
         st.stop()
 
     st.success("Execução finalizada.")

@@ -18,3 +18,4 @@ class CampaignConfig:
     log_path: str = os.getenv("LOG_CSV_PATH", "log.csv")
     screenshot_dir: str = os.getenv("SCREENSHOT_DIR", "screenshots")
     chromium_args: tuple[str, ...] = ("--no-sandbox", "--disable-dev-shm-usage")
+    playwright_auto_install: bool = os.getenv("PLAYWRIGHT_AUTO_INSTALL", "true").lower() == "true"

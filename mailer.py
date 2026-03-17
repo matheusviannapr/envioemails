@@ -40,6 +40,7 @@ def run_campaign(
         password=cfg.titan_password,
         headless=cfg.headless,
         chromium_args=cfg.chromium_args,
+        auto_install_browser=getattr(cfg, "playwright_auto_install", True),
     )
 
     try:
