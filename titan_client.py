@@ -137,6 +137,13 @@ class TitanClient:
 
         self.context = self.browser.new_context()
         self.page = self.context.new_page()
+        
+        # Script stealth para mascarar o Playwright
+        self.page.add_init_script("""
+            Object.defineProperty(navigator, 'webdriver', {
+                get: () => undefined
+            });
+        """)
 
     def stop(self):
         for obj in [self.context, self.browser, self.playwright]:
