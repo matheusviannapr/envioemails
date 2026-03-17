@@ -30,7 +30,17 @@ class TitanClient:
 
     def start(self):
         self.playwright = sync_playwright().start()
-        self.browser = self.playwright.chromium.launch(headless=self.headless, args=self.chromium_args)
+        try:
+            self.browser = self.playwright.chromium.launch(headless=self.headless, args=self.chromium_args)
+        except Exception as exc:
+            message = str(exc)
+            if "Executable doesn't exist" in message or "Please run the following command" in message:
+                raise RuntimeError(
+                    "Chromium do Playwright não está instalado no servidor. "
+                    "Execute: playwright install chromium"
+                ) from exc
+            raise
+
         self.context = self.browser.new_context()
         self.page = self.context.new_page()
 

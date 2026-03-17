@@ -196,15 +196,20 @@ if st.button("Iniciar campanha"):
     def _status(msg: str):
         log_text.write(msg)
 
-    out_df = run_campaign(
-        df=working_df.copy(),
-        email_col=email_col,
-        subject_template=subject_template,
-        body_template=body_template,
-        cfg=cfg,
-        progress_callback=_progress,
-        status_callback=_status,
-    )
+    try:
+        out_df = run_campaign(
+            df=working_df.copy(),
+            email_col=email_col,
+            subject_template=subject_template,
+            body_template=body_template,
+            cfg=cfg,
+            progress_callback=_progress,
+            status_callback=_status,
+        )
+    except Exception as exc:
+        st.error(f"Falha ao executar campanha: {exc}")
+        st.info("Se for ambiente novo, execute no servidor: `playwright install chromium`")
+        st.stop()
 
     st.success("Execução finalizada.")
     st.dataframe(out_df, use_container_width=True)

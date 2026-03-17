@@ -42,3 +42,8 @@ cp .env.example .env
 ```bash
 streamlit run app.py
 ```
+
+
+## Troubleshooting
+
+- Erro `Executable doesn't exist` no Playwright: execute `playwright install chromium` no servidor/VPS antes de rodar o app.
