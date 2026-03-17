@@ -14,9 +14,11 @@ Refatoração do fluxo para usar **automação do Titan Webmail** (Playwright) c
 
 ## Funcionalidades atendidas
 
+- Criação de campanha direto no app com planilha editável (quantidade variável de campos)
 - Upload de CSV com colunas como `nome,email,empresa`
 - Placeholders em assunto/corpo no formato `{nome}` e `{empresa}`
-- Login no Titan via `.env`
+- Exemplo pronto de assunto/corpo ao abrir o app para facilitar uso
+- Login no Titan via `.env` e/ou campos de credenciais na barra lateral
 - Envio via Chromium headless com `--no-sandbox` e `--disable-dev-shm-usage`
 - Máximo de 30 envios por execução
 - Delay aleatório entre 45 e 90 segundos
