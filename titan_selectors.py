@@ -9,6 +9,6 @@ BODY_EDITOR_SELECTOR = 'div.fr-element'
 SEND_BUTTON_SELECTOR = 'span:has-text("Enviar")'
 
 # Fallback selectors para login, pois podem variar por tenant/idioma.
-LOGIN_EMAIL_SELECTORS = ['input[type="email"]', 'input[name="email"]']
-LOGIN_PASSWORD_SELECTORS = ['input[type="password"]', 'input[name="password"]']
+LOGIN_EMAIL_SELECTORS = ['input#username', 'input[name="username"]', 'input[type="email"]', 'input[name="email"]', 'input.ux-text-entry-field[type="text"]']
+LOGIN_PASSWORD_SELECTORS = ['input#password', 'input[autocomplete="current-password"]', 'input[type="password"]', 'input[name="password"]']
 LOGIN_SUBMIT_SELECTORS = ['button[type="submit"]', 'button:has-text("Entrar")', 'button:has-text("Sign in")']
