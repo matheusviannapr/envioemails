@@ -1,4 +1,5 @@
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -43,13 +44,45 @@ class TitanClient:
         message = str(error)
         return "Executable doesn't exist" in message or "Please run the following command" in message
 
-    def _install_chromium(self) -> None:
-        subprocess.run(
+    def _run_install_command(self, command: list[str], allow_failure: bool = False) -> tuple[bool, str]:
+        try:
+            completed = subprocess.run(command, check=True, capture_output=True, text=True)
+            output = (completed.stdout or "") + (completed.stderr or "")
+            return True, output.strip()
+        except Exception as exc:
+            if allow_failure:
+                return False, str(exc)
+            raise
+
+    def _install_chromium(self) -> tuple[bool, str]:
+        logs = []
+        playwright_bin = shutil.which("playwright")
+
+        install_attempts = [
+            [sys.executable, "-m", "playwright", "install"],
             [sys.executable, "-m", "playwright", "install", "chromium"],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
+        ]
+
+        if playwright_bin:
+            install_attempts.extend(
+                [
+                    ["playwright", "install"],
+                    ["playwright", "install", "chromium"],
+                ]
+            )
+
+        for cmd in install_attempts:
+            ok, output = self._run_install_command(cmd, allow_failure=True)
+            logs.append(f"$ {' '.join(cmd)}\n{output}")
+            if ok:
+                # install-deps pode falhar em ambientes sem sudo (ex.: Streamlit Cloud), então é best effort.
+                if playwright_bin and cmd[0] == "playwright":
+                    self._run_install_command(["playwright", "install-deps"], allow_failure=True)
+                elif cmd[0] == sys.executable:
+                    self._run_install_command([sys.executable, "-m", "playwright", "install-deps"], allow_failure=True)
+                return True, "\n\n".join(logs)
+
+        return False, "\n\n".join(logs)
 
     def start(self):
         self.playwright = sync_playwright().start()
@@ -57,15 +90,24 @@ class TitanClient:
             self.browser = self.playwright.chromium.launch(headless=self.headless, args=self.chromium_args)
         except Exception as exc:
             if self.auto_install_browser and self._is_missing_browser_error(exc):
-                try:
-                    self._install_chromium()
-                    self.browser = self.playwright.chromium.launch(headless=self.headless, args=self.chromium_args)
-                except Exception as install_exc:
+                ok, install_logs = self._install_chromium()
+                if ok:
+                    try:
+                        self.browser = self.playwright.chromium.launch(headless=self.headless, args=self.chromium_args)
+                    except Exception as relaunch_exc:
+                        raise RuntimeError(
+                            "A instalação automática foi executada, mas o Chromium ainda não iniciou. "
+                            "No Streamlit Cloud, verifique o runtime e reinicie o app. "
+                            f"Detalhes: {relaunch_exc}"
+                        ) from relaunch_exc
+                else:
                     raise RuntimeError(
                         "Chromium do Playwright não está instalado e a instalação automática falhou. "
-                        "No Streamlit Cloud, mantenha PLAYWRIGHT_AUTO_INSTALL=true; "
-                        "em VPS, execute: playwright install chromium"
-                    ) from install_exc
+                        "Tentativas realizadas: playwright install / playwright install chromium / playwright install-deps (best effort). "
+                        "No Streamlit Cloud, mantenha PLAYWRIGHT_AUTO_INSTALL=true e faça reboot do app. "
+                        "Em VPS, execute manualmente: playwright install chromium. "
+                        f"Logs: {install_logs[:1200]}"
+                    ) from exc
             else:
                 if self._is_missing_browser_error(exc):
                     raise RuntimeError(
