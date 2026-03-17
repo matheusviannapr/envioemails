@@ -49,7 +49,7 @@ def _build_manual_dataframe(
 
 with st.sidebar:
     st.header("Configuração Titan")
-    st.write(f"Titan URL: `{cfg.titan_url}`")
+    sidebar_titan_url = st.text_input("Titan URL", value=cfg.titan_url, placeholder="https://webmail.titan.email").strip()
     st.write(f"Headless: `{cfg.headless}`")
     st.caption("Você pode usar os valores do .env como padrão e sobrescrever abaixo.")
 
@@ -70,6 +70,7 @@ with st.sidebar:
     st.caption(f"Máximo por execução: {cfg.max_per_run} e-mails")
     st.caption(f"Delay aleatório: {cfg.delay_min_seconds}s até {cfg.delay_max_seconds}s")
 
+cfg.titan_url = sidebar_titan_url or cfg.titan_url
 cfg.titan_email = sidebar_titan_email
 cfg.titan_password = sidebar_titan_password
 
@@ -207,8 +208,17 @@ if st.button("Iniciar campanha"):
             status_callback=_status,
         )
     except Exception as exc:
-        st.error(f"Falha ao executar campanha: {exc}")
-        st.info("No Streamlit Cloud: além do auto-install, você precisa das libs do SO via packages.txt (ex.: libnss3, libatk1.0-0, libx11-6). Depois faça reboot/redeploy.")
+        message = str(exc)
+        st.error(f"Falha ao executar campanha: {message}")
+
+        if "ERR_NAME_NOT_RESOLVED" in message or "resolver o domínio" in message:
+            st.info("Erro de DNS/rede: confira Titan URL na barra lateral, conectividade do ambiente e tente novamente.")
+        elif "shared libraries" in message or "libglib" in message:
+            st.info("No Streamlit Cloud: configure packages.txt com libs do SO e faça reboot/redeploy.")
+        elif "Chromium" in message:
+            st.info("Ambiente novo: no Streamlit Cloud deixe PLAYWRIGHT_AUTO_INSTALL=true; em VPS rode playwright install chromium.")
+        else:
+            st.info("Verifique logs completos da exceção e conectividade ao Titan Webmail.")
         st.stop()
 
     st.success("Execução finalizada.")

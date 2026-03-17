@@ -166,7 +166,21 @@ class TitanClient:
         raise RuntimeError(f"Falha ao clicar em '{selector}': {last_exc}")
 
     def login(self):
-        self.page.goto(self.base_url, wait_until="domcontentloaded", timeout=60000)
+        try:
+            self.page.goto(self.base_url, wait_until="domcontentloaded", timeout=60000)
+        except Exception as exc:
+            message = str(exc)
+            if "ERR_NAME_NOT_RESOLVED" in message:
+                raise RuntimeError(
+                    "Não foi possível resolver o domínio do Titan Webmail (ERR_NAME_NOT_RESOLVED). "
+                    "Verifique a URL configurada, DNS/rede do ambiente e tente novamente."
+                ) from exc
+            if "ERR_CONNECTION" in message or "ERR_INTERNET_DISCONNECTED" in message:
+                raise RuntimeError(
+                    "Falha de conectividade ao acessar Titan Webmail. "
+                    "Verifique acesso de rede/egress do ambiente Streamlit Cloud."
+                ) from exc
+            raise
 
         email_field = self._first_visible(LOGIN_EMAIL_SELECTORS)
         email_field.fill(self.email)
