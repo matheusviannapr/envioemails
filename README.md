@@ -9,7 +9,7 @@ Refatoração do fluxo para usar **automação do Titan Webmail** (Playwright) c
 - `titan_client.py` → automação de navegador no Titan
 - `utils.py` → CSV, placeholders e logs
 - `config.py` → configuração via `.env`
-- `selectors.py` → seletores da interface Titan
+- `titan_selectors.py` → seletores da interface Titan (evita conflito com módulo padrão `selectors`)
 - `.env.example` → modelo de variáveis
 
 ## Funcionalidades atendidas

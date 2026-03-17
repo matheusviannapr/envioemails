@@ -4,7 +4,7 @@ from datetime import datetime
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
-from selectors import (
+from titan_selectors import (
     BODY_EDITOR_SELECTOR,
     COMPOSE_BUTTON_SELECTORS,
     LOGIN_EMAIL_SELECTORS,
