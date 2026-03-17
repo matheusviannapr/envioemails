@@ -8,14 +8,14 @@ from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
 from titan_selectors import (
-    BODY_EDITOR_SELECTOR,
+    BODY_EDITOR_SELECTORS,
     COMPOSE_BUTTON_SELECTORS,
     LOGIN_EMAIL_SELECTORS,
     LOGIN_PASSWORD_SELECTORS,
     LOGIN_SUBMIT_SELECTORS,
-    SEND_BUTTON_SELECTOR,
-    SUBJECT_FIELD_SELECTOR,
-    TO_FIELD_SELECTOR,
+    SEND_BUTTON_SELECTORS,
+    SUBJECT_FIELD_SELECTORS,
+    TO_FIELD_SELECTORS,
 )
 
 
@@ -204,18 +204,28 @@ class TitanClient:
         if not compose_clicked:
             raise RuntimeError("Não foi possível abrir janela de composição.")
 
-        self.page.locator(TO_FIELD_SELECTOR).first.wait_for(state="visible", timeout=15000)
-        self.page.locator(TO_FIELD_SELECTOR).first.fill(recipient)
-        self.page.locator(SUBJECT_FIELD_SELECTOR).first.wait_for(state="visible", timeout=15000)
-        self.page.locator(SUBJECT_FIELD_SELECTOR).first.fill(subject)
+        to_field = self._first_visible(TO_FIELD_SELECTORS, timeout_ms=20000)
+        to_field.fill(recipient)
 
-        body_locator = self.page.locator(BODY_EDITOR_SELECTOR).first
-        body_locator.wait_for(state="visible", timeout=15000)
+        subject_field = self._first_visible(SUBJECT_FIELD_SELECTORS, timeout_ms=20000)
+        subject_field.fill(subject)
+
+        body_locator = self._first_visible(BODY_EDITOR_SELECTORS, timeout_ms=20000)
         body_locator.click()
         self.page.keyboard.press("Control+A")
         self.page.keyboard.type(body)
 
-        self._retry_click(SEND_BUTTON_SELECTOR)
+        sent_clicked = False
+        for selector in SEND_BUTTON_SELECTORS:
+            try:
+                self._retry_click(selector)
+                sent_clicked = True
+                break
+            except Exception:
+                continue
+
+        if not sent_clicked:
+            raise RuntimeError("Não foi possível clicar no botão de envio (Send/Enviar).")
 
     def save_error_screenshot(self, directory: str) -> str:
         os.makedirs(directory, exist_ok=True)
