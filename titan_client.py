@@ -10,6 +10,7 @@ from playwright.sync_api import sync_playwright
 from titan_selectors import (
     BODY_EDITOR_SELECTORS,
     COMPOSE_BUTTON_SELECTORS,
+    LOGIN_CONTINUE_SELECTORS,
     LOGIN_EMAIL_SELECTORS,
     LOGIN_PASSWORD_SELECTORS,
     LOGIN_SUBMIT_SELECTORS,
@@ -154,6 +155,16 @@ class TitanClient:
                 continue
         raise PlaywrightTimeoutError(f"Nenhum seletor ficou visível: {selectors}")
 
+
+    def _try_click_any(self, selectors: list[str], retries: int = 2) -> bool:
+        for selector in selectors:
+            try:
+                self._retry_click(selector, retries=retries)
+                return True
+            except Exception:
+                continue
+        return False
+
     def _retry_click(self, selector: str, retries: int = 3, delay_s: float = 0.7):
         last_exc = None
         for _ in range(retries):
@@ -182,14 +193,27 @@ class TitanClient:
                 ) from exc
             raise
 
-        email_field = self._first_visible(LOGIN_EMAIL_SELECTORS)
-        email_field.fill(self.email)
-        password_field = self._first_visible(LOGIN_PASSWORD_SELECTORS)
-        password_field.fill(self.password)
-        submit_btn = self._first_visible(LOGIN_SUBMIT_SELECTORS)
-        submit_btn.click()
+        email_field = self._first_visible(LOGIN_EMAIL_SELECTORS, timeout_ms=25000)
+        if not (email_field.input_value() or "").strip():
+            email_field.fill(self.email)
 
-        compose_button = self._first_visible(COMPOSE_BUTTON_SELECTORS, timeout_ms=45000)
+        # Fluxo Titan pode exigir etapa inicial "Login/Next" antes da senha (ou redirecionar para GoDaddy SSO).
+        self._try_click_any(LOGIN_CONTINUE_SELECTORS)
+
+        # Se senha ainda não estiver visível, tenta confirmar novamente com seletores de submit.
+        try:
+            password_field = self._first_visible(LOGIN_PASSWORD_SELECTORS, timeout_ms=15000)
+        except Exception:
+            self._try_click_any(LOGIN_SUBMIT_SELECTORS)
+            password_field = self._first_visible(LOGIN_PASSWORD_SELECTORS, timeout_ms=30000)
+
+        if not (password_field.input_value() or "").strip():
+            password_field.fill(self.password)
+
+        if not self._try_click_any(LOGIN_SUBMIT_SELECTORS):
+            raise RuntimeError("Não foi possível clicar no botão de login (Sign In/Entrar).")
+
+        compose_button = self._first_visible(COMPOSE_BUTTON_SELECTORS, timeout_ms=60000)
         compose_button.wait_for(state="visible")
 
     def send_email(self, recipient: str, subject: str, body: str):

@@ -19,6 +19,7 @@ Refatoração do fluxo para usar **automação do Titan Webmail** (Playwright) c
 - Placeholders em assunto/corpo no formato `{nome}` e `{empresa}`
 - Exemplo pronto de assunto/corpo ao abrir o app para facilitar uso
 - Login no Titan via `.env` e/ou campos de credenciais na barra lateral (incluindo Titan URL editável)
+- Suporte a fluxo de login em duas etapas (Titan → GoDaddy SSO)
 - Envio via Chromium headless com `--no-sandbox` e `--disable-dev-shm-usage`
 - Máximo de 30 envios por execução
 - Delay aleatório entre 45 e 90 segundos
@@ -58,3 +59,5 @@ Crie `packages.txt` na raiz com dependências de SO para Playwright/Chromium.
 Incluímos uma lista ampliada baseada em erros comuns no Streamlit Cloud (ex.: `libglib`, `libnspr4`, `libcups2`, `libatspi2.0-0`, `libwayland-client0`).
 
 - Erro `ERR_NAME_NOT_RESOLVED`: revise a Titan URL no sidebar e a conectividade/DNS do ambiente Streamlit Cloud.
+
+- Se seu domínio usa GoDaddy SSO, o app tenta o fluxo com etapa inicial de e-mail + redirecionamento para senha/Sign In.

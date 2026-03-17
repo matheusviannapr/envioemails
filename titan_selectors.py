@@ -39,3 +39,10 @@ SEND_BUTTON_SELECTORS = [
 LOGIN_EMAIL_SELECTORS = ['input#username', 'input[name="username"]', 'input[type="email"]', 'input[name="email"]', 'input.ux-text-entry-field[type="text"]']
 LOGIN_PASSWORD_SELECTORS = ['input#password', 'input[autocomplete="current-password"]', 'input[type="password"]', 'input[name="password"]']
 LOGIN_SUBMIT_SELECTORS = ['button#submitBtn', 'button[id="submitBtn"]', 'button[type="submit"]', 'button:has-text("Entrar")', 'button:has-text("Sign In")', 'button:has-text("Sign in")']
+
+LOGIN_CONTINUE_SELECTORS = [
+    'button.btn.btn-primary.btn-login',
+    'button:has-text("Login")',
+    'button:has-text("Next")',
+    'button:has-text("Continue")',
+]
