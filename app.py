@@ -120,7 +120,7 @@ if source_mode == "Planilha editável no app":
     st.markdown("### Planilha da campanha")
     st.session_state.manual_df = st.data_editor(
         st.session_state.manual_df,
-        use_container_width=True,
+        width="stretch",
         num_rows="fixed",
         key="manual_editor",
     )
@@ -134,7 +134,7 @@ else:
 
     working_df = _ensure_base_columns(load_csv(uploaded_file))
     st.subheader("Prévia do CSV")
-    st.dataframe(working_df.head(20), use_container_width=True)
+    st.dataframe(working_df.head(20), width="stretch")
 
     if working_df.empty:
         st.warning("CSV sem linhas.")
@@ -208,11 +208,11 @@ if st.button("Iniciar campanha"):
         )
     except Exception as exc:
         st.error(f"Falha ao executar campanha: {exc}")
-        st.info("No Streamlit Cloud: além do auto-install, você precisa das libs do SO via packages.txt (ex.: libglib2.0-0, libnss3, libatk1.0-0, libx11-6). Depois faça reboot/redeploy.")
+        st.info("No Streamlit Cloud: além do auto-install, você precisa das libs do SO via packages.txt (ex.: libnss3, libatk1.0-0, libx11-6). Depois faça reboot/redeploy.")
         st.stop()
 
     st.success("Execução finalizada.")
-    st.dataframe(out_df, use_container_width=True)
+    st.dataframe(out_df, width="stretch")
     st.download_button(
         "Baixar CSV atualizado",
         data=to_csv_download(out_df),
