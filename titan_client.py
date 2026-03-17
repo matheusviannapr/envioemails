@@ -10,11 +10,10 @@ from playwright.sync_api import sync_playwright
 from titan_selectors import (
     BODY_EDITOR_SELECTORS,
     COMPOSE_BUTTON_SELECTORS,
-    TITAN_LOGIN_EMAIL_SELECTORS,
-    TITAN_LOGIN_NEXT_BUTTON_SELECTORS,
-    GODADDY_LOGIN_EMAIL_SELECTORS,
-    GODADDY_LOGIN_PASSWORD_SELECTORS,
-    GODADDY_LOGIN_SUBMIT_SELECTORS,
+    LOGIN_CONTINUE_SELECTORS,
+    LOGIN_EMAIL_SELECTORS,
+    LOGIN_PASSWORD_SELECTORS,
+    LOGIN_SUBMIT_SELECTORS,
     SEND_BUTTON_SELECTORS,
     SUBJECT_FIELD_SELECTORS,
     TO_FIELD_SELECTORS,
@@ -137,13 +136,6 @@ class TitanClient:
 
         self.context = self.browser.new_context()
         self.page = self.context.new_page()
-        
-        # Script stealth para mascarar o Playwright
-        self.page.add_init_script("""
-            Object.defineProperty(navigator, 'webdriver', {
-                get: () => undefined
-            });
-        """)
 
     def stop(self):
         for obj in [self.context, self.browser, self.playwright]:
@@ -162,6 +154,16 @@ class TitanClient:
             except Exception:
                 continue
         raise PlaywrightTimeoutError(f"Nenhum seletor ficou visível: {selectors}")
+
+
+    def _try_click_any(self, selectors: list[str], retries: int = 2) -> bool:
+        for selector in selectors:
+            try:
+                self._retry_click(selector, retries=retries)
+                return True
+            except Exception:
+                continue
+        return False
 
     def _retry_click(self, selector: str, retries: int = 3, delay_s: float = 0.7):
         last_exc = None
@@ -191,43 +193,28 @@ class TitanClient:
                 ) from exc
             raise
 
-        # Passo 1: Preencher email na página inicial do Titan
-        try:
-            email_field = self._first_visible(TITAN_LOGIN_EMAIL_SELECTORS, timeout_ms=15000)
+        email_field = self._first_visible(LOGIN_EMAIL_SELECTORS, timeout_ms=25000)
+        if not (email_field.input_value() or "").strip():
             email_field.fill(self.email)
-            next_btn = self._first_visible(TITAN_LOGIN_NEXT_BUTTON_SELECTORS, timeout_ms=5000)
-            next_btn.click()
-        except PlaywrightTimeoutError:
-            # Pode já estar na página da GoDaddy ou já logado
-            pass
 
-        # Aguardar possível redirecionamento para GoDaddy
-        time.sleep(3)
+        # Fluxo Titan pode exigir etapa inicial "Login/Next" antes da senha (ou redirecionar para GoDaddy SSO).
+        self._try_click_any(LOGIN_CONTINUE_SELECTORS)
 
-        # Passo 2: Preencher senha (e email se necessário) no SSO da GoDaddy
-        if "sso.godaddy.com" in self.page.url:
-            try:
-                # Verifica se o email já está preenchido, se não, preenche
-                godaddy_email = self._first_visible(GODADDY_LOGIN_EMAIL_SELECTORS, timeout_ms=5000)
-                if not godaddy_email.input_value():
-                    godaddy_email.fill(self.email)
-            except PlaywrightTimeoutError:
-                pass
-
-            password_field = self._first_visible(GODADDY_LOGIN_PASSWORD_SELECTORS, timeout_ms=15000)
-            password_field.fill(self.password)
-            submit_btn = self._first_visible(GODADDY_LOGIN_SUBMIT_SELECTORS, timeout_ms=5000)
-            submit_btn.click()
-
-        # Passo 3: Aguardar redirecionamento de volta para a caixa de entrada do Titan
+        # Se senha ainda não estiver visível, tenta confirmar novamente com seletores de submit.
         try:
-            compose_button = self._first_visible(COMPOSE_BUTTON_SELECTORS, timeout_ms=45000)
-            compose_button.wait_for(state="visible")
-        except PlaywrightTimeoutError as exc:
-            # Verifica se a GoDaddy bloqueou o login
-            if "sso.godaddy.com" in self.page.url and self.page.locator('text="unusual"').count() > 0:
-                raise RuntimeError("A GoDaddy bloqueou o login por detectar um navegador automatizado (unusual browser). Considere usar SMTP.") from exc
-            raise RuntimeError("Falha ao carregar a caixa de entrada do Titan após o login.") from exc
+            password_field = self._first_visible(LOGIN_PASSWORD_SELECTORS, timeout_ms=15000)
+        except Exception:
+            self._try_click_any(LOGIN_SUBMIT_SELECTORS)
+            password_field = self._first_visible(LOGIN_PASSWORD_SELECTORS, timeout_ms=30000)
+
+        if not (password_field.input_value() or "").strip():
+            password_field.fill(self.password)
+
+        if not self._try_click_any(LOGIN_SUBMIT_SELECTORS):
+            raise RuntimeError("Não foi possível clicar no botão de login (Sign In/Entrar).")
+
+        compose_button = self._first_visible(COMPOSE_BUTTON_SELECTORS, timeout_ms=60000)
+        compose_button.wait_for(state="visible")
 
     def send_email(self, recipient: str, subject: str, body: str):
         compose_clicked = False

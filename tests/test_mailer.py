@@ -9,7 +9,7 @@ sys.path.append(str(Path(__file__).resolve().parents[1]))
 import mailer
 
 
-class FakeTitanClient:
+class FakeSmtpClient:
     def __init__(self, *args, **kwargs):
         self.calls = []
 
@@ -22,30 +22,25 @@ class FakeTitanClient:
     def send_email(self, recipient, subject, body):
         self.calls.append((recipient, subject, body))
 
-    def save_error_screenshot(self, directory):
-        return f"{directory}/error.png"
-
     def stop(self):
         return None
 
 
 def test_run_campaign_respects_max_per_run_and_marks_sent(monkeypatch, tmp_path):
-    fake_module = SimpleNamespace(TitanClient=FakeTitanClient)
-    monkeypatch.setitem(sys.modules, "titan_client", fake_module)
+    fake_module = SimpleNamespace(SmtpClient=FakeSmtpClient)
+    monkeypatch.setitem(sys.modules, "smtp_client", fake_module)
     monkeypatch.setattr(mailer.time, "sleep", lambda *_: None)
 
     cfg = SimpleNamespace(
         log_path=str(tmp_path / "log.csv"),
         max_per_run=2,
-        titan_url="https://webmail.titan.email",
+        smtp_host="smtpout.secureserver.net",
+        smtp_port=465,
         titan_email="x@y.com",
         titan_password="123",
-        headless=True,
-        chromium_args=("--no-sandbox", "--disable-dev-shm-usage"),
         max_consecutive_errors=3,
         delay_min_seconds=0,
         delay_max_seconds=0,
-        screenshot_dir=str(tmp_path),
     )
 
     df = pd.DataFrame([

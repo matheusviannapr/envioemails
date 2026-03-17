@@ -32,15 +32,13 @@ def run_campaign(
     done = 0
     consecutive_errors = 0
 
-    from titan_client import TitanClient
+    from smtp_client import SmtpClient
 
-    client = TitanClient(
-        base_url=cfg.titan_url,
+    client = SmtpClient(
+        host=cfg.smtp_host,
+        port=cfg.smtp_port,
         email=cfg.titan_email,
         password=cfg.titan_password,
-        headless=cfg.headless,
-        chromium_args=cfg.chromium_args,
-        auto_install_browser=getattr(cfg, "playwright_auto_install", True),
     )
 
     try:
@@ -62,9 +60,8 @@ def run_campaign(
                 status = "enviado"
                 error = ""
             except Exception as exc:
-                screenshot = client.save_error_screenshot(cfg.screenshot_dir)
                 df.at[idx, "status"] = "erro"
-                df.at[idx, "erro"] = f"{exc} | screenshot={screenshot}"
+                df.at[idx, "erro"] = str(exc)
                 status = "erro"
                 error = str(df.at[idx, "erro"])
                 consecutive_errors += 1

@@ -8,9 +8,9 @@ from utils import extract_placeholders, load_csv, render_template, to_csv_downlo
 
 load_dotenv()
 
-st.set_page_config(page_title="Campanhas Titan via Playwright", layout="wide")
-st.title("📨 Campanhas Titan Webmail (Playwright)")
-st.caption("Crie campanhas no app com planilha editável, placeholders e envio automatizado via Playwright.")
+st.set_page_config(page_title="Campanhas Titan via SMTP", layout="wide")
+st.title("📨 Campanhas Titan via SMTP")
+st.caption("Crie campanhas no app com planilha editável, placeholders e envio via SMTP.")
 
 cfg = CampaignConfig()
 
@@ -48,9 +48,15 @@ def _build_manual_dataframe(
 
 
 with st.sidebar:
-    st.header("Configuração Titan")
-    sidebar_titan_url = st.text_input("Titan URL", value=cfg.titan_url, placeholder="https://webmail.titan.email").strip()
-    st.write(f"Headless: `{cfg.headless}`")
+    st.header("Configuração SMTP")
+    sidebar_smtp_host = st.text_input(
+        "Servidor SMTP",
+        value=cfg.smtp_host,
+        placeholder="smtpout.secureserver.net",
+    ).strip()
+    sidebar_smtp_port = int(
+        st.number_input("Porta SMTP", min_value=1, max_value=65535, value=int(cfg.smtp_port), step=1)
+    )
     st.caption("Você pode usar os valores do .env como padrão e sobrescrever abaixo.")
 
     sidebar_titan_email = st.text_input(
@@ -70,7 +76,8 @@ with st.sidebar:
     st.caption(f"Máximo por execução: {cfg.max_per_run} e-mails")
     st.caption(f"Delay aleatório: {cfg.delay_min_seconds}s até {cfg.delay_max_seconds}s")
 
-cfg.titan_url = sidebar_titan_url or cfg.titan_url
+cfg.smtp_host = sidebar_smtp_host or cfg.smtp_host
+cfg.smtp_port = sidebar_smtp_port
 cfg.titan_email = sidebar_titan_email
 cfg.titan_password = sidebar_titan_password
 
@@ -211,14 +218,12 @@ if st.button("Iniciar campanha"):
         message = str(exc)
         st.error(f"Falha ao executar campanha: {message}")
 
-        if "ERR_NAME_NOT_RESOLVED" in message or "resolver o domínio" in message:
-            st.info("Erro de DNS/rede: confira Titan URL na barra lateral, conectividade do ambiente e tente novamente.")
-        elif "shared libraries" in message or "libglib" in message:
-            st.info("No Streamlit Cloud: configure packages.txt com libs do SO e faça reboot/redeploy.")
-        elif "Chromium" in message:
-            st.info("Ambiente novo: no Streamlit Cloud deixe PLAYWRIGHT_AUTO_INSTALL=true; em VPS rode playwright install chromium.")
+        if "autenticação" in message.lower() or "authentication" in message.lower():
+            st.info("Falha de autenticação SMTP: verifique e-mail/senha e permissões da conta Titan/GoDaddy.")
+        elif "conectar" in message.lower() or "connect" in message.lower() or "smtp" in message.lower():
+            st.info("Falha de conexão SMTP: confira servidor, porta (465/587), firewall e DNS do ambiente.")
         else:
-            st.info("Verifique logs completos da exceção e conectividade ao Titan Webmail.")
+            st.info("Verifique logs completos do erro SMTP para ajustar credenciais/servidor.")
         st.stop()
 
     st.success("Execução finalizada.")

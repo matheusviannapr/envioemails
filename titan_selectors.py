@@ -35,11 +35,14 @@ SEND_BUTTON_SELECTORS = [
     'span:has-text("Enviar")',
 ]
 
-# Seletores da página inicial do Titan
-TITAN_LOGIN_EMAIL_SELECTORS = ['input[name="email"]', 'input[type="text"][placeholder*="Email"]']
-TITAN_LOGIN_NEXT_BUTTON_SELECTORS = ['button.btn-login', 'button:has-text("Login")', 'button:has-text("Next")']
+# Fallback selectors para login, pois podem variar por tenant/idioma.
+LOGIN_EMAIL_SELECTORS = ['input#username', 'input[name="username"]', 'input[type="email"]', 'input[name="email"]', 'input.ux-text-entry-field[type="text"]']
+LOGIN_PASSWORD_SELECTORS = ['input#password', 'input[autocomplete="current-password"]', 'input[type="password"]', 'input[name="password"]']
+LOGIN_SUBMIT_SELECTORS = ['button#submitBtn', 'button[id="submitBtn"]', 'button[type="submit"]', 'button:has-text("Entrar")', 'button:has-text("Sign In")', 'button:has-text("Sign in")']
 
-# Seletores do SSO da GoDaddy (redirecionamento)
-GODADDY_LOGIN_EMAIL_SELECTORS = ['input#username', 'input[name="username"]', 'input.ux-text-entry-field[type="text"]']
-GODADDY_LOGIN_PASSWORD_SELECTORS = ['input#password', 'input[autocomplete="current-password"]', 'input[type="password"]']
-GODADDY_LOGIN_SUBMIT_SELECTORS = ['button#submitBtn', 'button[id="submitBtn"]', 'button:has-text("Sign In")']
+LOGIN_CONTINUE_SELECTORS = [
+    'button.btn.btn-primary.btn-login',
+    'button:has-text("Login")',
+    'button:has-text("Next")',
+    'button:has-text("Continue")',
+]
