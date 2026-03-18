@@ -1,3 +1,5 @@
+import imaplib
+import time
 import smtplib
 from email.header import Header
 from email.mime.multipart import MIMEMultipart
@@ -5,11 +7,13 @@ from email.mime.text import MIMEText
 
 
 class SmtpClient:
-    def __init__(self, host: str, port: int, email: str, password: str):
+    def __init__(self, host: str, port: int, email: str, password: str, imap_host: str = "imap.secureserver.net", imap_port: int = 993):
         self.host = host
         self.port = port
         self.email = email
         self.password = password
+        self.imap_host = imap_host
+        self.imap_port = imap_port
         self.server = None
 
     def start(self):
@@ -36,6 +40,47 @@ class SmtpClient:
         except Exception as exc:
             raise RuntimeError(f"Erro inesperado durante o login SMTP: {exc}") from exc
 
+
+    def _decode_folder_line(self, raw_line) -> str:
+        if isinstance(raw_line, bytes):
+            return raw_line.decode("utf-8", errors="ignore")
+        return str(raw_line)
+
+    def _resolve_sent_folder(self, imap) -> str | None:
+        candidates = ["Sent", "Sent Items", "Enviados", "Itens Enviados"]
+
+        result, folders = imap.list()
+        if result != "OK" or not folders:
+            return None
+
+        parsed = [self._decode_folder_line(line) for line in folders]
+
+        for candidate in candidates:
+            for line in parsed:
+                if candidate.lower() in line.lower():
+                    # Nome da pasta é o trecho final entre aspas ou após último espaço.
+                    if '"' in line:
+                        parts = line.split('"')
+                        if len(parts) >= 3 and parts[-2].strip():
+                            return parts[-2].strip()
+                    fallback = line.rsplit(" ", 1)[-1].strip()
+                    return fallback.strip('"')
+
+        return None
+
+    def _save_to_sent(self, message_bytes: bytes):
+        with imaplib.IMAP4_SSL(self.imap_host, self.imap_port) as imap:
+            imap.login(self.email, self.password)
+            sent_folder = self._resolve_sent_folder(imap)
+            if not sent_folder:
+                return
+            imap.append(
+                sent_folder,
+                r"\Seen",
+                imaplib.Time2Internaldate(time.time()),
+                message_bytes,
+            )
+
     def send_email(self, recipient: str, subject: str, body: str):
         if not self.server:
             raise RuntimeError("Servidor SMTP não inicializado. Chame start() primeiro.")
@@ -48,6 +93,11 @@ class SmtpClient:
 
         try:
             self.server.sendmail(self.email, recipient, msg.as_string())
+            # Não impede o envio principal caso haja falha apenas ao salvar em Enviados.
+            try:
+                self._save_to_sent(msg.as_bytes())
+            except Exception:
+                pass
         except Exception as exc:
             raise RuntimeError(f"Falha ao enviar e-mail para {recipient}. Erro: {exc}") from exc
 

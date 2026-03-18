@@ -9,6 +9,8 @@ load_dotenv()
 class CampaignConfig:
     smtp_host: str = os.getenv("SMTP_HOST", "smtpout.secureserver.net")
     smtp_port: int = int(os.getenv("SMTP_PORT", "465"))
+    imap_host: str = os.getenv("IMAP_HOST", "imap.secureserver.net")
+    imap_port: int = int(os.getenv("IMAP_PORT", "993"))
 
     titan_email: str = os.getenv("TITAN_EMAIL", "")
     titan_password: str = os.getenv("TITAN_PASSWORD", "")

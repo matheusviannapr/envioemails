@@ -39,6 +39,8 @@ def run_campaign(
         port=cfg.smtp_port,
         email=cfg.titan_email,
         password=cfg.titan_password,
+        imap_host=getattr(cfg, "imap_host", "imap.secureserver.net"),
+        imap_port=getattr(cfg, "imap_port", 993),
     )
 
     try:
