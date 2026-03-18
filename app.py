@@ -1,110 +1,24 @@
-import io
-import random
-import time
-from datetime import datetime
-from typing import List
-
 import pandas as pd
 import streamlit as st
-from streamlit.errors import StreamlitSecretNotFoundError
 from dotenv import load_dotenv
 
-from mailer import build_smtp_client, send_email
-from storage import append_log_rows, download_log_csv, init_db
-from templates import render_template
-from utils import (
-    STATUS_PENDING_VALUES,
-    build_template_preview,
-    get_available_placeholders,
-    load_csv,
-    process_campaign,
-    validate_campaign_inputs,
-)
+from config import CampaignConfig
+from mailer import run_campaign
+from utils import extract_placeholders, load_csv, render_template, to_csv_download
 
 load_dotenv()
 
-st.set_page_config(page_title="Titan Mail Merge", layout="wide")
-st.title("📧 Titan Mail Merge (Uso autorizado)")
-st.caption(
-    "Envio SMTP com controle operacional, sem automação de navegador e sem técnicas de evasão."
-)
+st.set_page_config(page_title="Campanhas Titan via SMTP", layout="wide")
+st.title("📨 Campanhas Titan via SMTP")
+st.caption("Crie campanhas no app com planilha editável, placeholders e envio via SMTP.")
 
-if "df_result" not in st.session_state:
-    st.session_state.df_result = None
-if "log_rows" not in st.session_state:
-    st.session_state.log_rows = []
+cfg = CampaignConfig()
+
 if "manual_df" not in st.session_state:
-    st.session_state.manual_df = pd.DataFrame(
-        [
-            {
-                "email": "contato1@empresa.com",
-                "campo_1": "João",
-                "campo_2": "Empresa A",
-                "campo_3": "Diagnóstico energético",
-                "status": "",
-                "erro": "",
-                "enviado_em": "",
-            },
-            {
-                "email": "contato2@empresa.com",
-                "campo_1": "Maria",
-                "campo_2": "Empresa B",
-                "campo_3": "Eficiência operacional",
-                "status": "pendente",
-                "erro": "",
-                "enviado_em": "",
-            },
-        ]
-    )
+    st.session_state.manual_df = pd.DataFrame()
 
 
-def _read_secret(key: str) -> str:
-    try:
-        value = st.secrets[key]
-    except StreamlitSecretNotFoundError:
-        return ""
-    except KeyError:
-        return ""
-    return str(value).strip()
-
-
-with st.sidebar:
-    st.header("Configurações SMTP")
-    smtp_host = st.text_input("Host", value="smtp.titan.email", disabled=True)
-    smtp_port = st.number_input("Porta", min_value=1, max_value=65535, value=587, disabled=True)
-
-    email_user = _read_secret("email_user")
-    email_password = _read_secret("email_password")
-
-    smtp_sender = st.text_input("E-mail remetente (email_user)", value=email_user, disabled=True)
-    smtp_password = st.text_input(
-        "Senha (email_password)",
-        type="password",
-        value=("********" if email_password else ""),
-        disabled=True,
-    )
-
-    if not email_user:
-        st.error("Defina 'email_user' em st.secrets.")
-    elif "@" not in email_user or email_user.count("@") != 1:
-        st.error("'email_user' deve ser um endereço de e-mail completo.")
-
-    if not email_password:
-        st.error("Defina 'email_password' em st.secrets.")
-
-    st.header("Parâmetros da campanha")
-    max_per_run = st.number_input("Máximo por execução", min_value=1, max_value=30, value=30)
-    min_interval = st.number_input("Intervalo mínimo (s)", min_value=0.0, value=1.0, step=0.5)
-    max_interval = st.number_input("Intervalo máximo (s)", min_value=0.0, value=2.0, step=0.5)
-    persist_sqlite = st.checkbox("Persistir histórico em SQLite", value=True)
-    sqlite_path = st.text_input("Arquivo SQLite", value="campaign_history.db")
-
-    st.markdown("---")
-    st.caption("Credenciais lidas de st.secrets. Campos acima são apenas exibição.")
-
-
-def _ensure_campaign_columns(df: pd.DataFrame) -> pd.DataFrame:
-    """Garante as colunas de controle no dataframe."""
+def _ensure_base_columns(df: pd.DataFrame) -> pd.DataFrame:
     local = df.copy()
     for col in ["status", "erro", "enviado_em"]:
         if col not in local.columns:
@@ -114,287 +28,225 @@ def _ensure_campaign_columns(df: pd.DataFrame) -> pd.DataFrame:
 
 def _build_manual_dataframe(
     email_col_name: str,
-    field_names: List[str],
+    custom_fields: list[str],
     row_count: int,
     current_df: pd.DataFrame,
 ) -> pd.DataFrame:
-    """Cria/ajusta dataframe manual preservando valores possíveis."""
-    base_columns = [email_col_name] + field_names + ["status", "erro", "enviado_em"]
+    campaign_columns = [email_col_name] + custom_fields
+    base_columns = campaign_columns + ["status", "erro", "enviado_em"]
 
     if current_df is None or current_df.empty:
-        return pd.DataFrame([{col: "" for col in base_columns} for _ in range(row_count)])
+        rows = [{col: "" for col in base_columns} for _ in range(row_count)]
+        return pd.DataFrame(rows)
 
-    adjusted_rows = []
+    rows = []
     for i in range(row_count):
         source = current_df.iloc[i].to_dict() if i < len(current_df) else {}
-        adjusted_rows.append({col: source.get(col, "") for col in base_columns})
+        rows.append({col: source.get(col, "") for col in base_columns})
 
-    return pd.DataFrame(adjusted_rows)
+    return pd.DataFrame(rows)
 
+
+with st.sidebar:
+    st.header("Configuração SMTP")
+    sidebar_smtp_host = st.text_input(
+        "Servidor SMTP",
+        value=cfg.smtp_host,
+        placeholder="smtpout.secureserver.net",
+        key="smtp_host_input",
+    ).strip()
+    sidebar_smtp_port = int(
+        st.number_input("Porta SMTP", min_value=1, max_value=65535, value=int(cfg.smtp_port), step=1, key="smtp_port_input")
+    )
+    sidebar_imap_host = st.text_input(
+        "Servidor IMAP",
+        value=cfg.imap_host,
+        placeholder="imap.secureserver.net",
+        key="imap_host_input",
+    ).strip()
+    sidebar_imap_port = int(
+        st.number_input("Porta IMAP", min_value=1, max_value=65535, value=int(cfg.imap_port), step=1, key="imap_port_input")
+    )
+    st.caption("Você pode usar os valores do .env como padrão e sobrescrever abaixo.")
+
+    sidebar_titan_email = st.text_input(
+        "E-mail Titan",
+        value=cfg.titan_email,
+        placeholder="seu_email@dominio.com",
+        key="smtp_email_input",
+    ).strip()
+    sidebar_titan_password = st.text_input(
+        "Senha Titan",
+        type="password",
+        value=cfg.titan_password,
+        placeholder="Sua senha",
+        key="smtp_password_input",
+    ).strip()
+
+    st.markdown("---")
+    st.subheader("Parâmetros da execução")
+    st.caption(f"Máximo por execução: {cfg.max_per_run} e-mails")
+    st.caption(f"Delay aleatório: {cfg.delay_min_seconds}s até {cfg.delay_max_seconds}s")
+
+cfg.smtp_host = sidebar_smtp_host or cfg.smtp_host
+cfg.smtp_port = sidebar_smtp_port
+cfg.imap_host = sidebar_imap_host or cfg.imap_host
+cfg.imap_port = sidebar_imap_port
+cfg.titan_email = sidebar_titan_email
+cfg.titan_password = sidebar_titan_password
 
 source_mode = st.radio(
-    "Origem dos dados",
-    options=["Upload CSV", "Planilha editável no app"],
+    "Origem dos dados da campanha",
+    options=["Planilha editável no app", "Upload CSV"],
     horizontal=True,
 )
 
 working_df = None
-email_col = None
+email_col = "email"
 
-if source_mode == "Upload CSV":
-    uploaded_file = st.file_uploader("Upload do CSV", type=["csv"])
-    if uploaded_file:
-        try:
-            working_df = load_csv(uploaded_file)
-        except Exception as exc:
-            st.error(f"Erro ao carregar CSV: {exc}")
-            st.stop()
+if source_mode == "Planilha editável no app":
+    st.subheader("Montar campanha no app")
+    st.caption("Defina os campos da campanha e preencha os leads diretamente na tabela abaixo.")
 
-        st.subheader("Prévia do CSV")
-        st.dataframe(working_df.head(20), use_container_width=True)
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        email_col = st.text_input("Nome da coluna de e-mail", value="email", key="email_col_name_input").strip() or "email"
+    with col2:
+        lead_count = int(st.number_input("Quantidade de leads", min_value=1, max_value=30, value=5, step=1, key="lead_count_input"))
+    with col3:
+        fields_count = int(st.number_input("Quantidade de campos variáveis", min_value=1, max_value=10, value=2, step=1, key="fields_count_input"))
 
-        if not working_df.empty:
-            email_col = st.selectbox("Coluna de e-mail", options=list(working_df.columns))
+    st.markdown("**Campos variáveis (para usar no corpo/assunto como placeholders)**")
+    default_names = ["nome", "empresa", "cargo", "telefone", "cidade"]
+    custom_fields = []
+    for i in range(fields_count):
+        default_name = default_names[i] if i < len(default_names) else f"campo_{i + 1}"
+        field_name = st.text_input(f"Campo {i + 1}", value=default_name, key=f"field_name_{i}").strip()
+        custom_fields.append(field_name or f"campo_{i + 1}")
 
-else:
-    st.subheader("Planilha editável")
-    st.caption(
-        "Defina os campos variáveis (campo_1, campo_2, ...) e edite os dados diretamente abaixo."
-    )
-
-    col_a, col_b = st.columns(2)
-    with col_a:
-        email_col = st.text_input("Nome da coluna de e-mail", value="email")
-        num_fields = st.number_input("Quantidade de campos variáveis", min_value=1, value=3, step=1)
-    with col_b:
-        row_count = st.number_input("Quantidade de linhas", min_value=1, value=5, step=1)
-
-    st.markdown("**Nomes dos campos variáveis**")
-    field_names = []
-    for i in range(int(num_fields)):
-        field_name = st.text_input(f"Campo {i + 1}", value=f"campo_{i + 1}", key=f"field_name_{i}")
-        field_names.append(field_name.strip() or f"campo_{i + 1}")
-
-    if st.button("Gerar/Atualizar planilha editável"):
+    if st.button("Gerar/atualizar planilha", key="build_sheet_btn") or st.session_state.manual_df.empty:
         st.session_state.manual_df = _build_manual_dataframe(
             email_col_name=email_col,
-            field_names=field_names,
-            row_count=int(row_count),
+            custom_fields=custom_fields,
+            row_count=lead_count,
             current_df=st.session_state.manual_df,
         )
 
-    if st.button("Carregar exemplo preenchido"):
-        # Exemplo simples solicitado pelo usuário
-        example_rows = []
-        for i in range(int(row_count)):
-            row = {
-                email_col: f"contato{i + 1}@empresa.com",
-                "status": "" if i % 2 == 0 else "pendente",
-                "erro": "",
-                "enviado_em": "",
-            }
-            for n, field in enumerate(field_names, start=1):
-                row[field] = f"Valor {n} - Linha {i + 1}"
-            example_rows.append(row)
-        st.session_state.manual_df = pd.DataFrame(example_rows)
+        if not st.session_state.manual_df.empty:
+            st.session_state.manual_df.at[0, email_col] = "joao@empresa.com"
+            if "nome" in st.session_state.manual_df.columns:
+                st.session_state.manual_df.at[0, "nome"] = "João"
+            if "empresa" in st.session_state.manual_df.columns:
+                st.session_state.manual_df.at[0, "empresa"] = "Empresa A"
 
-    st.session_state.manual_df = _build_manual_dataframe(
-        email_col_name=email_col,
-        field_names=field_names,
-        row_count=int(row_count),
-        current_df=st.session_state.manual_df,
-    )
-
-    edited_df = st.data_editor(
+    st.markdown("### Planilha da campanha")
+    st.session_state.manual_df = st.data_editor(
         st.session_state.manual_df,
-        num_rows="dynamic",
-        use_container_width=True,
+        width="stretch",
+        num_rows="fixed",
         key="manual_editor",
     )
-    working_df = _ensure_campaign_columns(pd.DataFrame(edited_df))
+    working_df = _ensure_base_columns(st.session_state.manual_df)
 
-if working_df is None:
-    st.info("Selecione uma origem de dados para começar.")
-    st.stop()
+else:
+    uploaded_file = st.file_uploader("Upload do CSV de leads", type=["csv"], key="csv_uploader")
+    if not uploaded_file:
+        st.info("Envie um CSV para iniciar ou troque para 'Planilha editável no app'.")
+        st.stop()
 
-if working_df.empty:
-    st.warning("A tabela está vazia.")
-    st.stop()
+    working_df = _ensure_base_columns(load_csv(uploaded_file))
+    st.subheader("Prévia do CSV")
+    st.dataframe(working_df.head(20), width="stretch")
 
-working_df = _ensure_campaign_columns(working_df)
-if not email_col or email_col not in working_df.columns:
-    st.error("Defina corretamente a coluna de e-mail.")
-    st.stop()
+    if working_df.empty:
+        st.warning("CSV sem linhas.")
+        st.stop()
 
-st.subheader("Template")
-placeholders = get_available_placeholders(working_df)
-st.caption(f"Placeholders disponíveis: {', '.join(placeholders) if placeholders else 'Nenhum'}")
+    email_col = st.selectbox(
+        "Coluna de e-mail",
+        key="email_col_select",
+        options=list(working_df.columns),
+        index=list(working_df.columns).index("email") if "email" in working_df.columns else 0,
+    )
 
-subject_template = st.text_input("Assunto (editável)", value="Pergunta rápida para {{campo_2}}")
+st.markdown("---")
+st.subheader("Mensagem da campanha")
+
+example_subject = "Olá {nome}, proposta para {empresa}"
+example_body = (
+    "Olá {nome},\n\n"
+    "Vi que você está na {empresa} e gostaria de te mostrar uma proposta rápida.\n"
+    "Se fizer sentido, me responde por aqui.\n\n"
+    "Abraço!"
+)
+
+subject_template = st.text_input("Assunto", value=example_subject, key="subject_template_input")
 body_template = st.text_area(
-    "Corpo padrão do e-mail (editável)",
-    value=(
-        "Olá {{campo_1}},\n\n"
-        "Sou Matheus Vianna, da PACE Inteligência Energética.\n\n"
-        "Gostaria de entender se o custo de energia é um tema relevante hoje para a {{campo_2}}.\n"
-        "Tema de interesse: {{campo_3}}.\n\n"
-        "Abraço,\n"
-        "Matheus Vianna"
-    ),
+    "Corpo do e-mail (use placeholders como {nome}, {empresa})",
+    key="body_template_input",
+    value=example_body,
     height=220,
 )
 
-preview_idx = st.number_input(
-    "Linha para prévia (índice)", min_value=0, max_value=max(len(working_df) - 1, 0), value=0
-)
-preview_data = working_df.iloc[int(preview_idx)].to_dict()
-rendered_subject, rendered_body = build_template_preview(subject_template, body_template, preview_data)
+placeholders = sorted(extract_placeholders(subject_template) | extract_placeholders(body_template))
+st.caption("Placeholders detectados: " + (", ".join(f"{{{p}}}" for p in placeholders) if placeholders else "nenhum"))
 
-c1, c2 = st.columns(2)
-with c1:
-    st.markdown("**Prévia do assunto**")
-    st.code(rendered_subject)
-with c2:
-    st.markdown("**Prévia do corpo**")
-    st.code(rendered_body)
+if working_df is not None and not working_df.empty:
+    preview_row = working_df.iloc[0].to_dict()
+    st.markdown("### Prévia do primeiro lead")
+    st.write("**Assunto renderizado:**", render_template(subject_template, preview_row))
+    st.write("**Corpo renderizado:**")
+    st.code(render_template(body_template, preview_row))
 
-st.markdown("---")
-st.subheader("Validação / Teste")
+progress = st.progress(0)
+log_text = st.empty()
 
-test_email = st.text_input("E-mail para envio de teste")
-simulate_mode = st.checkbox("Simular campanha (não envia)", value=False)
-
-if st.button("Enviar teste", type="secondary"):
-    is_valid, errors = validate_campaign_inputs(
-        df=working_df,
-        email_col=email_col,
-        subject_template=subject_template,
-        body_template=body_template,
-        smtp_user=email_user,
-        smtp_password=email_password,
-        max_per_run=int(max_per_run),
-        min_interval=float(min_interval),
-        max_interval=float(max_interval),
-    )
-    if not test_email:
-        errors.append("Informe o e-mail de teste.")
-
-    if not is_valid or errors:
-        for err in errors:
-            st.error(err)
-    else:
-        try:
-            subject = render_template(subject_template, preview_data)
-            body = render_template(body_template, preview_data)
-            send_email(
-                host=smtp_host,
-                port=int(smtp_port),
-                username=email_user,
-                password=email_password,
-                sender=email_user,
-                recipient=test_email,
-                subject=subject,
-                body=body,
-            )
-            st.success(f"Teste enviado para {test_email}.")
-        except Exception as exc:
-            st.error(f"Falha no envio de teste: {exc}")
-
-if st.button("Executar campanha", type="primary"):
-    is_valid, errors = validate_campaign_inputs(
-        df=working_df,
-        email_col=email_col,
-        subject_template=subject_template,
-        body_template=body_template,
-        smtp_user=email_user,
-        smtp_password=email_password,
-        max_per_run=int(max_per_run),
-        min_interval=float(min_interval),
-        max_interval=float(max_interval),
-    )
-
-    if not is_valid:
-        for err in errors:
-            st.error(err)
+if st.button("Iniciar campanha", key="start_campaign_btn"):
+    if working_df is None or working_df.empty:
+        st.error("Inclua leads na planilha antes de iniciar a campanha.")
         st.stop()
 
-    if persist_sqlite:
-        init_db(sqlite_path)
+    if email_col not in working_df.columns:
+        st.error("A coluna de e-mail selecionada não existe na planilha.")
+        st.stop()
 
-    progress = st.progress(0)
-    status_text = st.empty()
+    if not cfg.titan_email or not cfg.titan_password:
+        st.error("Preencha e-mail e senha do Titan na barra lateral.")
+        st.stop()
 
-    smtp_client_factory = None
-    if not simulate_mode:
-        smtp_client_factory = lambda: build_smtp_client(
-            host=smtp_host,
-            port=int(smtp_port),
-            username=email_user,
-            password=email_password,
-        )
+    def _progress(done: int, total: int):
+        progress.progress(done / total if total else 1.0)
 
-    def on_progress(done: int, total: int):
-        pct = int((done / total) * 100) if total else 100
-        progress.progress(min(pct, 100))
-        status_text.info(f"Processando: {done}/{total}")
+    def _status(msg: str):
+        log_text.write(msg)
 
     try:
-        result_df, log_rows = process_campaign(
-            df=working_df,
+        out_df = run_campaign(
+            df=working_df.copy(),
             email_col=email_col,
             subject_template=subject_template,
             body_template=body_template,
-            sender_email=email_user,
-            smtp_send_callable=send_email,
-            smtp_client_factory=smtp_client_factory,
-            max_per_run=int(max_per_run),
-            min_interval=float(min_interval),
-            max_interval=float(max_interval),
-            simulate=simulate_mode,
-            progress_callback=on_progress,
-            sleep_callable=time.sleep,
-            random_callable=random.uniform,
-            sqlite_path=sqlite_path if persist_sqlite else None,
+            cfg=cfg,
+            progress_callback=_progress,
+            status_callback=_status,
         )
     except Exception as exc:
-        progress.empty()
-        status_text.empty()
-        st.error(f"Falha ao iniciar a campanha: {exc}")
+        message = str(exc)
+        st.error(f"Falha ao executar campanha: {message}")
+
+        if "autenticação" in message.lower() or "authentication" in message.lower():
+            st.info("Falha de autenticação SMTP: verifique e-mail/senha e permissões da conta Titan/GoDaddy.")
+        elif "conectar" in message.lower() or "connect" in message.lower() or "smtp" in message.lower():
+            st.info("Falha de conexão SMTP: confira servidor, porta (465/587), firewall e DNS do ambiente.")
+        else:
+            st.info("Verifique logs completos do erro SMTP para ajustar credenciais/servidor.")
         st.stop()
 
-    st.session_state.df_result = result_df
-    st.session_state.log_rows = log_rows
-    append_log_rows(log_rows)
-
-    progress.progress(100)
-    status_text.success("Campanha finalizada.")
-
-if st.session_state.df_result is not None:
-    st.subheader("Resultado da execução")
-    st.dataframe(st.session_state.df_result, use_container_width=True)
-
-    csv_buffer = io.StringIO()
-    st.session_state.df_result.to_csv(csv_buffer, index=False)
-
+    st.success("Execução finalizada.")
+    st.dataframe(out_df, width="stretch")
     st.download_button(
-        label="Baixar CSV atualizado",
-        data=csv_buffer.getvalue(),
-        file_name=f"campanha_resultado_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+        "Baixar CSV atualizado",
+        data=to_csv_download(out_df),
+        file_name="campanha_atualizada.csv",
         mime="text/csv",
     )
-
-if st.session_state.log_rows:
-    st.subheader("Logs")
-    st.dataframe(pd.DataFrame(st.session_state.log_rows), use_container_width=True)
-
-    st.download_button(
-        label="Baixar log CSV",
-        data=download_log_csv(st.session_state.log_rows),
-        file_name=f"log_envio_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-        mime="text/csv",
-    )
-
-pending_labels = sorted(str(v) for v in STATUS_PENDING_VALUES if v is not None)
-st.caption(
-    f"Status considerados pendentes para envio: {', '.join(['(vazio)'] + pending_labels)}"
-)
