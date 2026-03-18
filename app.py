@@ -53,17 +53,19 @@ with st.sidebar:
         "Servidor SMTP",
         value=cfg.smtp_host,
         placeholder="smtpout.secureserver.net",
+        key="smtp_host_input",
     ).strip()
     sidebar_smtp_port = int(
-        st.number_input("Porta SMTP", min_value=1, max_value=65535, value=int(cfg.smtp_port), step=1)
+        st.number_input("Porta SMTP", min_value=1, max_value=65535, value=int(cfg.smtp_port), step=1, key="smtp_port_input")
     )
     sidebar_imap_host = st.text_input(
         "Servidor IMAP",
         value=cfg.imap_host,
         placeholder="imap.secureserver.net",
+        key="imap_host_input",
     ).strip()
     sidebar_imap_port = int(
-        st.number_input("Porta IMAP", min_value=1, max_value=65535, value=int(cfg.imap_port), step=1)
+        st.number_input("Porta IMAP", min_value=1, max_value=65535, value=int(cfg.imap_port), step=1, key="imap_port_input")
     )
     st.caption("Você pode usar os valores do .env como padrão e sobrescrever abaixo.")
 
@@ -71,12 +73,14 @@ with st.sidebar:
         "E-mail Titan",
         value=cfg.titan_email,
         placeholder="seu_email@dominio.com",
+        key="smtp_email_input",
     ).strip()
     sidebar_titan_password = st.text_input(
         "Senha Titan",
         type="password",
         value=cfg.titan_password,
         placeholder="Sua senha",
+        key="smtp_password_input",
     ).strip()
 
     st.markdown("---")
@@ -88,40 +92,6 @@ cfg.smtp_host = sidebar_smtp_host or cfg.smtp_host
 cfg.smtp_port = sidebar_smtp_port
 cfg.imap_host = sidebar_imap_host or cfg.imap_host
 cfg.imap_port = sidebar_imap_port
-cfg.titan_email = sidebar_titan_email
-cfg.titan_password = sidebar_titan_password
-
-with st.sidebar:
-    st.header("Configuração SMTP")
-    sidebar_smtp_host = st.text_input(
-        "Servidor SMTP",
-        value=cfg.smtp_host,
-        placeholder="smtpout.secureserver.net",
-    ).strip()
-    sidebar_smtp_port = int(
-        st.number_input("Porta SMTP", min_value=1, max_value=65535, value=int(cfg.smtp_port), step=1)
-    )
-    st.caption("Você pode usar os valores do .env como padrão e sobrescrever abaixo.")
-
-    sidebar_titan_email = st.text_input(
-        "E-mail Titan",
-        value=cfg.titan_email,
-        placeholder="seu_email@dominio.com",
-    ).strip()
-    sidebar_titan_password = st.text_input(
-        "Senha Titan",
-        type="password",
-        value=cfg.titan_password,
-        placeholder="Sua senha",
-    ).strip()
-
-    st.markdown("---")
-    st.subheader("Parâmetros da execução")
-    st.caption(f"Máximo por execução: {cfg.max_per_run} e-mails")
-    st.caption(f"Delay aleatório: {cfg.delay_min_seconds}s até {cfg.delay_max_seconds}s")
-
-cfg.smtp_host = sidebar_smtp_host or cfg.smtp_host
-cfg.smtp_port = sidebar_smtp_port
 cfg.titan_email = sidebar_titan_email
 cfg.titan_password = sidebar_titan_password
 
@@ -140,11 +110,11 @@ if source_mode == "Planilha editável no app":
 
     col1, col2, col3 = st.columns(3)
     with col1:
-        email_col = st.text_input("Nome da coluna de e-mail", value="email").strip() or "email"
+        email_col = st.text_input("Nome da coluna de e-mail", value="email", key="email_col_name_input").strip() or "email"
     with col2:
-        lead_count = int(st.number_input("Quantidade de leads", min_value=1, max_value=30, value=5, step=1))
+        lead_count = int(st.number_input("Quantidade de leads", min_value=1, max_value=30, value=5, step=1, key="lead_count_input"))
     with col3:
-        fields_count = int(st.number_input("Quantidade de campos variáveis", min_value=1, max_value=10, value=2, step=1))
+        fields_count = int(st.number_input("Quantidade de campos variáveis", min_value=1, max_value=10, value=2, step=1, key="fields_count_input"))
 
     st.markdown("**Campos variáveis (para usar no corpo/assunto como placeholders)**")
     default_names = ["nome", "empresa", "cargo", "telefone", "cidade"]
@@ -154,7 +124,7 @@ if source_mode == "Planilha editável no app":
         field_name = st.text_input(f"Campo {i + 1}", value=default_name, key=f"field_name_{i}").strip()
         custom_fields.append(field_name or f"campo_{i + 1}")
 
-    if st.button("Gerar/atualizar planilha") or st.session_state.manual_df.empty:
+    if st.button("Gerar/atualizar planilha", key="build_sheet_btn") or st.session_state.manual_df.empty:
         st.session_state.manual_df = _build_manual_dataframe(
             email_col_name=email_col,
             custom_fields=custom_fields,
@@ -179,7 +149,7 @@ if source_mode == "Planilha editável no app":
     working_df = _ensure_base_columns(st.session_state.manual_df)
 
 else:
-    uploaded_file = st.file_uploader("Upload do CSV de leads", type=["csv"])
+    uploaded_file = st.file_uploader("Upload do CSV de leads", type=["csv"], key="csv_uploader")
     if not uploaded_file:
         st.info("Envie um CSV para iniciar ou troque para 'Planilha editável no app'.")
         st.stop()
@@ -194,6 +164,7 @@ else:
 
     email_col = st.selectbox(
         "Coluna de e-mail",
+        key="email_col_select",
         options=list(working_df.columns),
         index=list(working_df.columns).index("email") if "email" in working_df.columns else 0,
     )
@@ -209,9 +180,10 @@ example_body = (
     "Abraço!"
 )
 
-subject_template = st.text_input("Assunto", value=example_subject)
+subject_template = st.text_input("Assunto", value=example_subject, key="subject_template_input")
 body_template = st.text_area(
     "Corpo do e-mail (use placeholders como {nome}, {empresa})",
+    key="body_template_input",
     value=example_body,
     height=220,
 )
@@ -229,7 +201,7 @@ if working_df is not None and not working_df.empty:
 progress = st.progress(0)
 log_text = st.empty()
 
-if st.button("Iniciar campanha"):
+if st.button("Iniciar campanha", key="start_campaign_btn"):
     if working_df is None or working_df.empty:
         st.error("Inclua leads na planilha antes de iniciar a campanha.")
         st.stop()
