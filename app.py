@@ -1,5 +1,12 @@
+import io
+import random
+import time
+from datetime import datetime
+from typing import List
+
 import pandas as pd
 import streamlit as st
+from streamlit.errors import StreamlitSecretNotFoundError
 from dotenv import load_dotenv
 
 from config import CampaignConfig
@@ -12,10 +19,66 @@ st.set_page_config(page_title="Campanhas Titan via SMTP", layout="wide")
 st.title("📨 Campanhas Titan via SMTP")
 st.caption("Crie campanhas no app com planilha editável, placeholders e envio via SMTP.")
 
-cfg = CampaignConfig()
+def _get_secrets_dict() -> dict:
+    try:
+        return dict(st.secrets)
+    except StreamlitSecretNotFoundError:
+        return {}
 
-if "manual_df" not in st.session_state:
-    st.session_state.manual_df = pd.DataFrame()
+
+def _read_secret(*paths: str) -> str:
+    secrets = _get_secrets_dict()
+
+    for path in paths:
+        current = secrets
+        found = True
+
+        for key in path.split("."):
+            if isinstance(current, dict) and key in current:
+                current = current[key]
+            else:
+                found = False
+                break
+
+        if found and current is not None:
+            return str(current).strip()
+
+    return ""
+
+
+with st.sidebar:
+    st.header("Configurações SMTP")
+    smtp_host = st.text_input("Host", value="smtp.titan.email", disabled=True)
+    smtp_port = st.number_input("Porta", min_value=1, max_value=65535, value=587, disabled=True)
+
+    email_user = _read_secret("email_user", "smtp.email_user", "smtp.user")
+    email_password = _read_secret("email_password", "smtp.email_password", "smtp.password")
+
+    st.text_input("E-mail remetente (email_user)", value=email_user, disabled=True)
+    st.text_input(
+        "Senha (email_password)",
+        type="password",
+        value=("********" if email_password else ""),
+        disabled=True,
+    )
+
+    if not email_user:
+        st.error("Defina 'email_user' em st.secrets.")
+    elif "@" not in email_user or email_user.count("@") != 1:
+        st.error("'email_user' deve ser um endereço de e-mail completo.")
+
+    if not email_password:
+        st.error("Defina 'email_password' em st.secrets.")
+
+    st.header("Parâmetros da campanha")
+    max_per_run = st.number_input("Máximo por execução", min_value=1, max_value=30, value=30)
+    min_interval = st.number_input("Intervalo mínimo (s)", min_value=0.0, value=1.0, step=0.5)
+    max_interval = st.number_input("Intervalo máximo (s)", min_value=0.0, value=2.0, step=0.5)
+    persist_sqlite = st.checkbox("Persistir histórico em SQLite", value=True)
+    sqlite_path = st.text_input("Arquivo SQLite", value="campaign_history.db")
+
+    st.markdown("---")
+    st.caption("Credenciais lidas de st.secrets. Campos acima são apenas exibição.")
 
 
 def _ensure_base_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -198,8 +261,60 @@ if working_df is not None and not working_df.empty:
     st.write("**Corpo renderizado:**")
     st.code(render_template(body_template, preview_row))
 
-progress = st.progress(0)
-log_text = st.empty()
+st.markdown("---")
+st.subheader("Validação / Teste")
+
+test_email = st.text_input("E-mail para envio de teste")
+simulate_mode = st.checkbox("Simular campanha (não envia)", value=False)
+
+if st.button("Enviar teste", type="secondary"):
+    is_valid, errors = validate_campaign_inputs(
+        df=working_df,
+        email_col=email_col,
+        subject_template=subject_template,
+        body_template=body_template,
+        smtp_user=email_user,
+        smtp_password=email_password,
+        max_per_run=int(max_per_run),
+        min_interval=float(min_interval),
+        max_interval=float(max_interval),
+    )
+    if not test_email:
+        errors.append("Informe o e-mail de teste.")
+
+    if not is_valid or errors:
+        for err in errors:
+            st.error(err)
+    else:
+        try:
+            subject = render_template(subject_template, preview_data)
+            body = render_template(body_template, preview_data)
+            send_email(
+                host=smtp_host,
+                port=int(smtp_port),
+                username=email_user,
+                password=email_password,
+                sender=email_user,
+                recipient=test_email,
+                subject=subject,
+                body=body,
+            )
+            st.success(f"Teste enviado para {test_email}.")
+        except Exception as exc:
+            st.error(f"Falha no envio de teste: {exc}")
+
+if st.button("Executar campanha", type="primary"):
+    is_valid, errors = validate_campaign_inputs(
+        df=working_df,
+        email_col=email_col,
+        subject_template=subject_template,
+        body_template=body_template,
+        smtp_user=email_user,
+        smtp_password=email_password,
+        max_per_run=int(max_per_run),
+        min_interval=float(min_interval),
+        max_interval=float(max_interval),
+    )
 
 if st.button("Iniciar campanha", key="start_campaign_btn"):
     if working_df is None or working_df.empty:
@@ -214,8 +329,14 @@ if st.button("Iniciar campanha", key="start_campaign_btn"):
         st.error("Preencha e-mail e senha do Titan na barra lateral.")
         st.stop()
 
-    def _progress(done: int, total: int):
-        progress.progress(done / total if total else 1.0)
+    smtp_client_factory = None
+    if not simulate_mode:
+        smtp_client_factory = lambda: build_smtp_client(
+            host=smtp_host,
+            port=int(smtp_port),
+            username=email_user,
+            password=email_password,
+        )
 
     def _status(msg: str):
         log_text.write(msg)
@@ -226,9 +347,17 @@ if st.button("Iniciar campanha", key="start_campaign_btn"):
             email_col=email_col,
             subject_template=subject_template,
             body_template=body_template,
-            cfg=cfg,
-            progress_callback=_progress,
-            status_callback=_status,
+            sender_email=email_user,
+            smtp_send_callable=send_email,
+            smtp_client_factory=smtp_client_factory,
+            max_per_run=int(max_per_run),
+            min_interval=float(min_interval),
+            max_interval=float(max_interval),
+            simulate=simulate_mode,
+            progress_callback=on_progress,
+            sleep_callable=time.sleep,
+            random_callable=random.uniform,
+            sqlite_path=sqlite_path if persist_sqlite else None,
         )
     except Exception as exc:
         message = str(exc)

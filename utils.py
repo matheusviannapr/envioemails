@@ -21,53 +21,178 @@ def load_csv(file_obj) -> pd.DataFrame:
     return df
 
 
-def extract_placeholders(template: str) -> set[str]:
-    formatter = Formatter()
-    return {field_name for _, field_name, _, _ in formatter.parse(template) if field_name}
+def get_available_placeholders(df: pd.DataFrame) -> List[str]:
+    """Retorna placeholders no padrão {{coluna}} com base no CSV."""
+    return [f"{{{{{col}}}}}" for col in df.columns]
 
 
-def render_template(template: str, context: Dict) -> str:
-    values = {k: "" if pd.isna(v) else str(v) for k, v in context.items()}
-    return template.format_map(_SafeDict(values))
+def build_template_preview(subject_template: str, body_template: str, row_data: Dict) -> Tuple[str, str]:
+    """Renderiza assunto e corpo para pré-visualização."""
+    return render_template(subject_template, row_data), render_template(body_template, row_data)
 
 
-class _SafeDict(dict):
-    def __missing__(self, key):
-        return ""
+def validate_campaign_inputs(
+    df: pd.DataFrame,
+    email_col: str,
+    subject_template: str,
+    body_template: str,
+    smtp_user: str,
+    smtp_password: str,
+    max_per_run: int,
+    min_interval: float,
+    max_interval: float,
+) -> Tuple[bool, List[str]]:
+    """Valida entradas críticas antes de enviar campanha."""
+    errors = []
+
+    if df is None or df.empty:
+        errors.append("CSV vazio ou inválido.")
+
+    if not email_col or email_col not in df.columns:
+        errors.append("Coluna de e-mail inválida.")
+
+    if not subject_template or not subject_template.strip():
+        errors.append("Assunto não pode estar vazio.")
+
+    if not body_template or not body_template.strip():
+        errors.append("Corpo do e-mail não pode estar vazio.")
+
+    if not smtp_user or not smtp_password:
+        errors.append("Credenciais SMTP obrigatórias.")
+    elif "@" not in smtp_user or smtp_user.count("@") != 1:
+        errors.append("'email_user' deve ser um endereço de e-mail completo.")
+
+    if max_per_run < 1 or max_per_run > 30:
+        errors.append("Máximo por execução deve estar entre 1 e 30.")
+
+    if min_interval < 0 or max_interval < 0 or min_interval > max_interval:
+        errors.append("Intervalo inválido: mínimo deve ser <= máximo e ambos >= 0.")
+
+    return len(errors) == 0, errors
 
 
-def append_log(log_path: str, row: Dict):
-    exists = os.path.exists(log_path)
-    with open(log_path, "a", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=LOG_COLUMNS)
-        if not exists:
-            writer.writeheader()
-        writer.writerow({k: row.get(k, "") for k in LOG_COLUMNS})
+def _is_pending_status(value) -> bool:
+    if value is None:
+        return True
+    text = str(value).strip().lower()
+    return text in STATUS_PENDING_VALUES
 
 
-def read_log(log_path: str) -> pd.DataFrame:
-    if not os.path.exists(log_path):
-        return pd.DataFrame(columns=LOG_COLUMNS)
-    return pd.read_csv(log_path)
+def process_campaign(
+    df: pd.DataFrame,
+    email_col: str,
+    subject_template: str,
+    body_template: str,
+    sender_email: str,
+    smtp_send_callable: Callable,
+    smtp_client_factory: Optional[Callable],
+    max_per_run: int,
+    min_interval: float,
+    max_interval: float,
+    simulate: bool,
+    progress_callback: Optional[Callable[[int, int], None]] = None,
+    sleep_callable: Optional[Callable[[float], None]] = None,
+    random_callable: Optional[Callable[[float, float], float]] = None,
+    sqlite_path: Optional[str] = None,
+):
+    """Processa campanha com controle de limite, status e logging."""
+    working_df = df.copy()
+    log_rows = []
 
+    pending_indices = [
+        idx for idx, row in working_df.iterrows() if _is_pending_status(row.get("status", ""))
+    ]
+    pending_indices = pending_indices[:max_per_run]
 
-def sent_recipients(log_path: str) -> set[str]:
-    log_df = read_log(log_path)
-    if log_df.empty:
-        return set()
-    ok_df = log_df[log_df["status"] == "enviado"]
-    return {str(r).strip().lower() for r in ok_df["destinatario"].tolist()}
+    total = len(pending_indices)
+    done = 0
 
+    smtp_client = None
 
-def is_pending(value) -> bool:
-    return str(value).strip().lower() in PENDING_VALUES
+    try:
+        if not simulate and smtp_client_factory:
+            try:
+                smtp_client = smtp_client_factory()
+            except Exception as exc:  # noqa: BLE001 - erro de conexão/autenticação SMTP
+                raise ConnectionError(f"Falha ao autenticar/conectar no SMTP: {exc}") from exc
 
+        for idx in pending_indices:
+            row = working_df.loc[idx].to_dict()
+            recipient = str(row.get(email_col, "")).strip()
+            subject = render_template(subject_template, row)
+            body = render_template(body_template, row)
+            processed_at = datetime.utcnow().isoformat()
 
-def now_iso() -> str:
-    return datetime.utcnow().isoformat()
+            if not recipient or "@" not in recipient:
+                status = "erro"
+                error_message = "E-mail do destinatário inválido."
+            else:
+                try:
+                    if simulate:
+                        status = "ignorado"
+                        error_message = "Simulação: envio não realizado."
+                    else:
+                        smtp_send_callable(
+                            host="",
+                            port=0,
+                            username="",
+                            password="",
+                            sender=sender_email,
+                            recipient=recipient,
+                            subject=subject,
+                            body=body,
+                            smtp_client=smtp_client,
+                        )
+                        status = "enviado"
+                        error_message = ""
+                except Exception as exc:  # noqa: BLE001 - robustez operacional
+                    status = "erro"
+                    error_message = str(exc)
 
+            working_df.at[idx, "status"] = status
+            working_df.at[idx, "erro"] = error_message
+            working_df.at[idx, "enviado_em"] = processed_at
 
-def to_csv_download(df: pd.DataFrame) -> str:
-    buffer = io.StringIO()
-    df.to_csv(buffer, index=False)
-    return buffer.getvalue()
+            log_row = {
+                "processed_at": processed_at,
+                "row_index": int(idx),
+                "recipient": recipient,
+                "subject": subject,
+                "status": status,
+                "error_message": error_message,
+                "simulated": simulate,
+            }
+            log_rows.append(log_row)
+
+            if sqlite_path:
+                save_log_sqlite(sqlite_path, log_row)
+
+            done += 1
+            if progress_callback:
+                progress_callback(done, total)
+
+            # Espera apenas entre itens quando não for o último.
+            if done < total and sleep_callable and random_callable:
+                interval = random_callable(min_interval, max_interval)
+                sleep_callable(interval)
+
+        # Registra como ignorados linhas fora do limite que também estavam pendentes.
+        skipped_pending = [
+            idx
+            for idx in [
+                i for i, row in working_df.iterrows() if _is_pending_status(row.get("status", ""))
+            ]
+            if idx not in pending_indices
+        ]
+        for idx in skipped_pending:
+            if _is_pending_status(working_df.at[idx, "status"]):
+                working_df.at[idx, "status"] = "ignorado"
+                working_df.at[idx, "erro"] = "Fora do limite da execução atual."
+    finally:
+        if smtp_client is not None:
+            try:
+                smtp_client.quit()
+            except Exception:
+                pass
+
+    return working_df, log_rows
