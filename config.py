@@ -15,7 +15,7 @@ class CampaignConfig:
     titan_email: str = os.getenv("TITAN_EMAIL", "")
     titan_password: str = os.getenv("TITAN_PASSWORD", "")
 
-    max_per_run: int = min(int(os.getenv("MAX_PER_RUN", "30")), 30)
+    max_per_run: int = min(int(os.getenv("MAX_PER_RUN", "50")), 50)
     delay_min_seconds: int = int(os.getenv("DELAY_MIN_SECONDS", "6"))
     delay_max_seconds: int = int(os.getenv("DELAY_MAX_SECONDS", "9"))
     max_consecutive_errors: int = int(os.getenv("MAX_CONSECUTIVE_ERRORS", "5"))
