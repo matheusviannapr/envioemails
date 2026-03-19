@@ -25,6 +25,8 @@ class FakeSmtpClient:
     def stop(self):
         return None
 
+    def login(self):
+        return None
 
 def test_run_campaign_respects_max_per_run_and_marks_sent(monkeypatch, tmp_path):
     fake_module = SimpleNamespace(SmtpClient=FakeSmtpClient)
