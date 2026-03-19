@@ -1,31 +1,23 @@
-"""Utilitários de validação e processamento de campanha."""
-
-from __future__ import annotations
-
+import csv
+import io
+import os
 from datetime import datetime
-from typing import Callable, Dict, List, Optional, Tuple
+from string import Formatter
+from typing import Dict
 
 import pandas as pd
 
-from storage import save_log_sqlite
-from templates import render_template
 
-STATUS_PENDING_VALUES = {"", "pendente", "pending", None}
-
-
-class ValidationError(Exception):
-    """Erro de validação de entradas da campanha."""
+LOG_COLUMNS = ["destinatario", "horario", "status", "erro"]
+PENDING_VALUES = {"", "pendente", "pending", None}
 
 
 def load_csv(file_obj) -> pd.DataFrame:
-    """Carrega CSV e normaliza colunas para string simples."""
     df = pd.read_csv(file_obj)
     df.columns = [str(c).strip() for c in df.columns]
-
     for col in ["status", "erro", "enviado_em"]:
         if col not in df.columns:
             df[col] = ""
-
     return df
 
 

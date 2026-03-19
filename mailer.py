@@ -42,14 +42,58 @@ def send_email(
     owns_client = smtp_client is None
 
     try:
-        client = smtp_client or build_smtp_client(host, port, username, password)
-        client.send_message(msg)
-    except Exception as exc:  # noqa: BLE001 - queremos capturar falhas SMTP de forma robusta
-        raise SMTPSendError(str(exc)) from exc
-    finally:
-        if owns_client and smtp_client is None:
+        client.start()
+        client.login()
+
+        for idx in pending:
+            row = df.loc[idx].to_dict()
+            recipient = str(row.get(email_col, "")).strip()
+            subject = render_template(subject_template, row)
+            body = render_template(body_template, row)
+            timestamp = now_iso()
+
             try:
-                client.quit()
-            except Exception:
-                # Falha ao encerrar não impede fluxo.
-                pass
+                client.send_email(recipient=recipient, subject=subject, body=body)
+                df.at[idx, "status"] = "enviado"
+                df.at[idx, "erro"] = ""
+                consecutive_errors = 0
+                status = "enviado"
+                error = ""
+            except Exception as exc:
+                df.at[idx, "status"] = "erro"
+                df.at[idx, "erro"] = str(exc)
+                status = "erro"
+                error = str(df.at[idx, "erro"])
+                consecutive_errors += 1
+
+            df.at[idx, "enviado_em"] = timestamp
+            append_log(
+                cfg.log_path,
+                {
+                    "destinatario": recipient,
+                    "horario": timestamp,
+                    "status": status,
+                    "erro": error,
+                },
+            )
+
+            done += 1
+            if progress_callback:
+                progress_callback(done, total)
+            if status_callback:
+                status_callback(f"{done}/{total} -> {recipient}: {status}")
+
+            if consecutive_errors >= cfg.max_consecutive_errors:
+                if status_callback:
+                    status_callback("Campanha interrompida por muitos erros consecutivos.")
+                break
+
+            if done < total:
+                delay = random.uniform(cfg.delay_min_seconds, cfg.delay_max_seconds)
+                if status_callback:
+                    status_callback(f"Aguardando {delay:.1f}s antes do próximo envio...")
+                time.sleep(delay)
+    finally:
+        client.stop()
+
+    return df
