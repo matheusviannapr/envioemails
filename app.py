@@ -1,5 +1,4 @@
 import io
-import os
 import random
 import time
 from datetime import datetime
@@ -7,6 +6,7 @@ from typing import List
 
 import pandas as pd
 import streamlit as st
+from streamlit.errors import StreamlitSecretNotFoundError
 from dotenv import load_dotenv
 
 from mailer import build_smtp_client, send_email
@@ -58,26 +58,66 @@ if "manual_df" not in st.session_state:
     )
 
 
+def _get_secrets_dict() -> dict:
+    try:
+        return dict(st.secrets)
+    except StreamlitSecretNotFoundError:
+        return {}
+
+
+def _read_secret(*paths: str) -> str:
+    secrets = _get_secrets_dict()
+
+    for path in paths:
+        current = secrets
+        found = True
+
+        for key in path.split("."):
+            if isinstance(current, dict) and key in current:
+                current = current[key]
+            else:
+                found = False
+                break
+
+        if found and current is not None:
+            return str(current).strip()
+
+    return ""
+
+
 with st.sidebar:
     st.header("Configurações SMTP")
-    smtp_host = st.text_input("Host", value=os.getenv("SMTP_HOST", "smtp.titan.email"))
-    smtp_port = st.number_input(
-        "Porta", min_value=1, max_value=65535, value=int(os.getenv("SMTP_PORT", "465"))
+    smtp_host = st.text_input("Host", value="smtp.titan.email", disabled=True)
+    smtp_port = st.number_input("Porta", min_value=1, max_value=65535, value=587, disabled=True)
+
+    email_user = _read_secret("email_user", "smtp.email_user", "smtp.user")
+    email_password = _read_secret("email_password", "smtp.email_password", "smtp.password")
+
+    st.text_input("E-mail remetente (email_user)", value=email_user, disabled=True)
+    st.text_input(
+        "Senha (email_password)",
+        type="password",
+        value=("********" if email_password else ""),
+        disabled=True,
     )
-    smtp_sender = st.text_input("E-mail remetente (SMTP_USER)", value=os.getenv("SMTP_USER", ""))
-    smtp_password = st.text_input(
-        "Senha (SMTP_PASSWORD)", type="password", value=os.getenv("SMTP_PASSWORD", "")
-    )
+
+    if not email_user:
+        st.error("Defina 'email_user' em st.secrets.")
+    elif "@" not in email_user or email_user.count("@") != 1:
+        st.error("'email_user' deve ser um endereço de e-mail completo.")
+
+    if not email_password:
+        st.error("Defina 'email_password' em st.secrets.")
 
     st.header("Parâmetros da campanha")
     max_per_run = st.number_input("Máximo por execução", min_value=1, max_value=30, value=30)
-    min_interval = st.number_input("Intervalo mínimo (s)", min_value=0.0, value=1.0, step=0.5)
-    max_interval = st.number_input("Intervalo máximo (s)", min_value=0.0, value=2.0, step=0.5)
+    min_interval = st.number_input("Intervalo mínimo (s)", min_value=0.0, value=15.0, step=0.5)
+    max_interval = st.number_input("Intervalo máximo (s)", min_value=0.0, value=20.0, step=0.5)
     persist_sqlite = st.checkbox("Persistir histórico em SQLite", value=True)
     sqlite_path = st.text_input("Arquivo SQLite", value="campaign_history.db")
 
     st.markdown("---")
-    st.caption("Use variáveis de ambiente em produção. Campos acima são para execução local.")
+    st.caption("Credenciais lidas de st.secrets. Campos acima são apenas exibição.")
 
 
 def _ensure_campaign_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -247,8 +287,8 @@ if st.button("Enviar teste", type="secondary"):
         email_col=email_col,
         subject_template=subject_template,
         body_template=body_template,
-        smtp_user=smtp_sender,
-        smtp_password=smtp_password,
+        smtp_user=email_user,
+        smtp_password=email_password,
         max_per_run=int(max_per_run),
         min_interval=float(min_interval),
         max_interval=float(max_interval),
@@ -266,9 +306,9 @@ if st.button("Enviar teste", type="secondary"):
             send_email(
                 host=smtp_host,
                 port=int(smtp_port),
-                username=smtp_sender,
-                password=smtp_password,
-                sender=smtp_sender,
+                username=email_user,
+                password=email_password,
+                sender=email_user,
                 recipient=test_email,
                 subject=subject,
                 body=body,
@@ -283,8 +323,8 @@ if st.button("Executar campanha", type="primary"):
         email_col=email_col,
         subject_template=subject_template,
         body_template=body_template,
-        smtp_user=smtp_sender,
-        smtp_password=smtp_password,
+        smtp_user=email_user,
+        smtp_password=email_password,
         max_per_run=int(max_per_run),
         min_interval=float(min_interval),
         max_interval=float(max_interval),
@@ -306,8 +346,8 @@ if st.button("Executar campanha", type="primary"):
         smtp_client_factory = lambda: build_smtp_client(
             host=smtp_host,
             port=int(smtp_port),
-            username=smtp_sender,
-            password=smtp_password,
+            username=email_user,
+            password=email_password,
         )
 
     def on_progress(done: int, total: int):
@@ -321,7 +361,7 @@ if st.button("Executar campanha", type="primary"):
             email_col=email_col,
             subject_template=subject_template,
             body_template=body_template,
-            sender_email=smtp_sender,
+            sender_email=email_user,
             smtp_send_callable=send_email,
             smtp_client_factory=smtp_client_factory,
             max_per_run=int(max_per_run),
