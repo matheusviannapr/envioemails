@@ -98,6 +98,54 @@ cfg.imap_port = sidebar_imap_port
 cfg.titan_email = sidebar_titan_email
 cfg.titan_password = sidebar_titan_password
 
+with st.sidebar:
+    st.header("Configuração SMTP")
+    sidebar_smtp_host = st.text_input(
+        "Servidor SMTP",
+        value=cfg.smtp_host,
+        placeholder="smtpout.secureserver.net",
+        key="smtp_host_input",
+    ).strip()
+    sidebar_smtp_port = int(
+        st.number_input("Porta SMTP", min_value=1, max_value=65535, value=int(cfg.smtp_port), step=1, key="smtp_port_input")
+    )
+    sidebar_imap_host = st.text_input(
+        "Servidor IMAP",
+        value=cfg.imap_host,
+        placeholder="imap.secureserver.net",
+        key="imap_host_input",
+    ).strip()
+    sidebar_imap_port = int(
+        st.number_input("Porta IMAP", min_value=1, max_value=65535, value=int(cfg.imap_port), step=1, key="imap_port_input")
+    )
+    st.caption("Você pode usar os valores do .env como padrão e sobrescrever abaixo.")
+
+    sidebar_titan_email = st.text_input(
+        "E-mail Titan",
+        value=cfg.titan_email,
+        placeholder="seu_email@dominio.com",
+        key="smtp_email_input",
+    ).strip()
+    sidebar_titan_password = st.text_input(
+        "Senha Titan",
+        type="password",
+        value=cfg.titan_password,
+        placeholder="Sua senha",
+        key="smtp_password_input",
+    ).strip()
+
+    st.markdown("---")
+    st.subheader("Parâmetros da execução")
+    st.caption(f"Máximo por execução: {cfg.max_per_run} e-mails")
+    st.caption(f"Delay aleatório: {cfg.delay_min_seconds}s até {cfg.delay_max_seconds}s")
+
+cfg.smtp_host = sidebar_smtp_host or cfg.smtp_host
+cfg.smtp_port = sidebar_smtp_port
+cfg.imap_host = sidebar_imap_host or cfg.imap_host
+cfg.imap_port = sidebar_imap_port
+cfg.titan_email = sidebar_titan_email
+cfg.titan_password = sidebar_titan_password
+
 source_mode = st.radio(
     "Origem dos dados da campanha",
     options=["Planilha editável no app", "Upload CSV"],
