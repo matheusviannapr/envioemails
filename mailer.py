@@ -3,7 +3,7 @@ import time
 from typing import Callable
 
 from config import CampaignConfig
-from utils import append_log, is_pending, now_iso, render_template, sent_recipients
+from utils import append_log, is_pending, now_iso, render_template
 
 
 def run_campaign(
@@ -15,22 +15,29 @@ def run_campaign(
     progress_callback: Callable[[int, int], None] | None = None,
     status_callback: Callable[[str], None] | None = None,
 ):
-    sent_before = sent_recipients(cfg.log_path)
     pending = []
+    skipped_not_pending = []
 
     for idx, row in df.iterrows():
         recipient = str(row.get(email_col, "")).strip().lower()
         if not recipient:
-            continue
-        if recipient in sent_before:
+            skipped_not_pending.append(idx)
             continue
         if is_pending(row.get("status", "")):
             pending.append(idx)
+        else:
+            skipped_not_pending.append(idx)
 
     pending = pending[: cfg.max_per_run]
     total = len(pending)
     done = 0
     consecutive_errors = 0
+
+    if status_callback:
+        status_callback(
+            f"Planejado: {total} envio(s). "
+            f"Pulados: {len(skipped_not_pending)} não pendentes/sem e-mail válido."
+        )
 
     from smtp_client import SmtpClient
 
@@ -95,6 +102,7 @@ def run_campaign(
                 if status_callback:
                     status_callback(f"Aguardando {delay:.1f}s antes do próximo envio...")
                 time.sleep(delay)
+
     finally:
         client.stop()
 
