@@ -46,6 +46,33 @@ def _read_secret(*paths: str) -> str:
     return ""
 
 
+def _get_secrets_dict() -> dict:
+    try:
+        return dict(st.secrets)
+    except StreamlitSecretNotFoundError:
+        return {}
+
+
+def _read_secret(*paths: str) -> str:
+    secrets = _get_secrets_dict()
+
+    for path in paths:
+        current = secrets
+        found = True
+
+        for key in path.split("."):
+            if isinstance(current, dict) and key in current:
+                current = current[key]
+            else:
+                found = False
+                break
+
+        if found and current is not None:
+            return str(current).strip()
+
+    return ""
+
+
 with st.sidebar:
     st.header("Configurações SMTP")
     smtp_host = st.text_input("Host", value="smtp.titan.email", disabled=True)
@@ -72,8 +99,8 @@ with st.sidebar:
 
     st.header("Parâmetros da campanha")
     max_per_run = st.number_input("Máximo por execução", min_value=1, max_value=30, value=30)
-    min_interval = st.number_input("Intervalo mínimo (s)", min_value=0.0, value=1.0, step=0.5)
-    max_interval = st.number_input("Intervalo máximo (s)", min_value=0.0, value=2.0, step=0.5)
+    min_interval = st.number_input("Intervalo mínimo (s)", min_value=0.0, value=15.0, step=0.5)
+    max_interval = st.number_input("Intervalo máximo (s)", min_value=0.0, value=20.0, step=0.5)
     persist_sqlite = st.checkbox("Persistir histórico em SQLite", value=True)
     sqlite_path = st.text_input("Arquivo SQLite", value="campaign_history.db")
 
