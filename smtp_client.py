@@ -1,7 +1,9 @@
 import imaplib
 import time
 import smtplib
+import re
 from email.header import Header
+from html import unescape
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
@@ -81,15 +83,30 @@ class SmtpClient:
                 message_bytes,
             )
 
+
+    def _html_to_text(self, html_content: str) -> str:
+        text = re.sub(r"<\s*br\s*/?>", "\n", html_content, flags=re.IGNORECASE)
+        text = re.sub(r"</p\s*>", "\n", text, flags=re.IGNORECASE)
+        text = re.sub(r"</li\s*>", "\n", text, flags=re.IGNORECASE)
+        text = re.sub(r"<[^>]+>", "", text)
+        return unescape(text).strip()
+
     def send_email(self, recipient: str, subject: str, body: str):
         if not self.server:
             raise RuntimeError("Servidor SMTP não inicializado. Chame start() primeiro.")
 
-        msg = MIMEMultipart()
+        msg = MIMEMultipart("alternative")
         msg["From"] = self.email
         msg["To"] = recipient
         msg["Subject"] = Header(subject, "utf-8")
-        msg.attach(MIMEText(body, "plain", "utf-8"))
+
+        looks_like_html = bool(re.search(r"<[^>]+>", body or ""))
+        if looks_like_html:
+            plain_fallback = self._html_to_text(body) or "Mensagem em HTML"
+            msg.attach(MIMEText(plain_fallback, "plain", "utf-8"))
+            msg.attach(MIMEText(body, "html", "utf-8"))
+        else:
+            msg.attach(MIMEText(body, "plain", "utf-8"))
 
         try:
             self.server.sendmail(self.email, recipient, msg.as_string())

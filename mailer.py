@@ -1,45 +1,47 @@
-"""Envio de e-mails via SMTP com STARTTLS (Titan ou compatível)."""
+import random
+import time
+from typing import Callable
 
-import smtplib
-import ssl
-from email.message import EmailMessage
-from typing import Optional
-
-
-class SMTPSendError(Exception):
-    """Erro específico de envio SMTP."""
+from config import CampaignConfig
+from utils import append_log, is_pending, now_iso, render_template, sent_recipients
 
 
-def build_smtp_client(host: str, port: int, username: str, password: str):
-    """Cria cliente SMTP autenticado com STARTTLS."""
-    context = ssl.create_default_context()
-    client = smtplib.SMTP(host=host, port=port, timeout=30)
-    client.ehlo()
-    client.starttls(context=context)
-    client.ehlo()
-    client.login(username, password)
-    return client
+def run_campaign(
+    df,
+    email_col: str,
+    subject_template: str,
+    body_template: str,
+    cfg: CampaignConfig,
+    progress_callback: Callable[[int, int], None] | None = None,
+    status_callback: Callable[[str], None] | None = None,
+):
+    sent_before = sent_recipients(cfg.log_path)
+    pending = []
 
+    for idx, row in df.iterrows():
+        recipient = str(row.get(email_col, "")).strip().lower()
+        if not recipient:
+            continue
+        if recipient in sent_before:
+            continue
+        if is_pending(row.get("status", "")):
+            pending.append(idx)
 
-def send_email(
-    host: str,
-    port: int,
-    username: str,
-    password: str,
-    sender: str,
-    recipient: str,
-    subject: str,
-    body: str,
-    smtp_client: Optional[smtplib.SMTP] = None,
-) -> None:
-    """Envia e-mail de texto simples. Reutiliza cliente se fornecido."""
-    msg = EmailMessage()
-    msg["From"] = sender
-    msg["To"] = recipient
-    msg["Subject"] = subject
-    msg.set_content(body)
+    pending = pending[: cfg.max_per_run]
+    total = len(pending)
+    done = 0
+    consecutive_errors = 0
 
-    owns_client = smtp_client is None
+    from smtp_client import SmtpClient
+
+    client = SmtpClient(
+        host=cfg.smtp_host,
+        port=cfg.smtp_port,
+        email=cfg.titan_email,
+        password=cfg.titan_password,
+        imap_host=getattr(cfg, "imap_host", "imap.secureserver.net"),
+        imap_port=getattr(cfg, "imap_port", 993),
+    )
 
     try:
         client.start()
