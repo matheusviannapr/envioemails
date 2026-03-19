@@ -9,7 +9,7 @@ import pandas as pd
 
 
 LOG_COLUMNS = ["destinatario", "horario", "status", "erro"]
-PENDING_VALUES = {"", "pendente", "pending", None}
+PENDING_VALUES = {"", "pendente", "pending", "none", "nan"}
 
 
 def load_csv(file_obj) -> pd.DataFrame:
@@ -60,7 +60,10 @@ def sent_recipients(log_path: str) -> set[str]:
 
 
 def is_pending(value) -> bool:
-    return str(value).strip().lower() in PENDING_VALUES
+    if pd.isna(value):
+        return True
+    normalized = str(value).strip().lower()
+    return normalized in PENDING_VALUES
 
 
 def now_iso() -> str:
