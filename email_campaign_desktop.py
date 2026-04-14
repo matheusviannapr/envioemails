@@ -1,24 +1,24 @@
 import csv
+import html
 import imaplib
 import json
-import os
 import queue
 import random
 import re
 import smtplib
 import threading
 import time
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from email.header import Header
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
 from string import Formatter
+from tkinter import messagebox
 from typing import Any
 
 import customtkinter as ctk
-from tkinter import filedialog, messagebox
 
 
 APP_TITLE = "Email Campaign Desktop"
@@ -26,6 +26,7 @@ CONFIG_PATH = Path("desktop_config.json")
 CHECKPOINT_PATH = Path("desktop_checkpoint.json")
 TEXT_LOG_PATH = Path("desktop_campaign.log")
 MAX_ALLOWED_PER_CAMPAIGN = 100
+GRID_EXAMPLE = "email\tnome\tempresa\nana@empresa.com\tAna\tEmpresa A\nbruno@empresa.com\tBruno\tEmpresa B"
 
 
 @dataclass
@@ -36,9 +37,8 @@ class CampaignConfig:
     password: str = ""
     imap_host: str = "imap.secureserver.net"
     imap_port: int = 993
-    csv_path: str = ""
     subject: str = "Olá {nome}, proposta para {empresa}"
-    body: str = "Olá {nome},\n\nTudo bem?"
+    body_html: str = "<p>Olá <strong>{nome}</strong>,</p><p>Tudo bem?</p>"
     delay_min: float = 6.0
     delay_max: float = 9.0
     long_pause_seconds: int = 90
@@ -104,7 +104,7 @@ class SmtpImapClient:
         except Exception:
             pass
 
-    def send_email(self, recipient: str, subject: str, body: str):
+    def send_email(self, recipient: str, subject: str, body_html: str):
         if not self.server:
             raise RuntimeError("Servidor SMTP não inicializado")
 
@@ -113,13 +113,9 @@ class SmtpImapClient:
         msg["To"] = recipient
         msg["Subject"] = Header(subject, "utf-8")
 
-        looks_like_html = bool(re.search(r"<[^>]+>", body or ""))
-        if looks_like_html:
-            plain = re.sub(r"<[^>]+>", "", body)
-            msg.attach(MIMEText(plain, "plain", "utf-8"))
-            msg.attach(MIMEText(body, "html", "utf-8"))
-        else:
-            msg.attach(MIMEText(body, "plain", "utf-8"))
+        plain = html_to_text(body_html)
+        msg.attach(MIMEText(plain, "plain", "utf-8"))
+        msg.attach(MIMEText(body_html, "html", "utf-8"))
 
         self.server.sendmail(self.cfg.email, recipient, msg.as_string())
         self._save_to_sent(msg.as_bytes())
@@ -143,15 +139,38 @@ def render_template(template: str, row: dict[str, Any]) -> str:
     return template.format_map(SafeDict(clean))
 
 
-def read_contacts(csv_path: str) -> list[dict[str, str]]:
-    with open(csv_path, "r", encoding="utf-8-sig", newline="") as f:
-        reader = csv.DictReader(f)
-        if not reader.fieldnames:
-            raise RuntimeError("CSV sem cabeçalho.")
-        rows = [{(k or "").strip(): (v or "").strip() for k, v in row.items()} for row in reader]
+def html_to_text(body_html: str) -> str:
+    text = re.sub(r"<\s*br\s*/?>", "\n", body_html, flags=re.IGNORECASE)
+    text = re.sub(r"</p\s*>", "\n", text, flags=re.IGNORECASE)
+    text = re.sub(r"</li\s*>", "\n", text, flags=re.IGNORECASE)
+    text = re.sub(r"<[^>]+>", "", text)
+    return html.unescape(text).strip() or "Mensagem HTML"
+
+
+def parse_pasted_grid(raw_text: str) -> list[dict[str, str]]:
+    lines = [line for line in raw_text.splitlines() if line.strip()]
+    if not lines:
+        raise RuntimeError("Cole uma planilha com cabeçalho e linhas.")
+
+    sniff = csv.Sniffer()
+    delimiter = "\t"
+    try:
+        dialect = sniff.sniff("\n".join(lines[:3]), delimiters="\t;,")
+        delimiter = dialect.delimiter
+    except Exception:
+        pass
+
+    reader = csv.DictReader(lines, delimiter=delimiter)
+    if not reader.fieldnames:
+        raise RuntimeError("Planilha sem cabeçalho.")
+
+    rows = []
+    for row in reader:
+        cleaned = {(k or "").strip(): (v or "").strip() for k, v in row.items()}
+        rows.append(cleaned)
 
     if not rows:
-        raise RuntimeError("CSV sem linhas.")
+        raise RuntimeError("Planilha sem linhas de dados.")
 
     email_key = None
     for key in rows[0].keys():
@@ -159,7 +178,7 @@ def read_contacts(csv_path: str) -> list[dict[str, str]]:
             email_key = key
             break
     if not email_key:
-        raise RuntimeError("CSV precisa ter coluna 'email'.")
+        raise RuntimeError("A planilha precisa ter uma coluna chamada 'email'.")
 
     normalized = []
     for row in rows:
@@ -168,6 +187,7 @@ def read_contacts(csv_path: str) -> list[dict[str, str]]:
         row["erro"] = row.get("erro", "")
         row["enviado_em"] = row.get("enviado_em", "")
         normalized.append(row)
+
     return normalized
 
 
@@ -177,7 +197,7 @@ class DesktopApp(ctk.CTk):
         ctk.set_appearance_mode("System")
         ctk.set_default_color_theme("blue")
         self.title(APP_TITLE)
-        self.geometry("1200x860")
+        self.geometry("1280x900")
 
         self.log_queue: queue.Queue[str] = queue.Queue()
         self.pause_event = threading.Event()
@@ -207,7 +227,7 @@ class DesktopApp(ctk.CTk):
         left.grid(row=0, column=0, sticky="nsew", padx=(0, 8), pady=6)
         right.grid(row=0, column=1, sticky="nsew", padx=(8, 0), pady=6)
         left.grid_columnconfigure(1, weight=1)
-        right.grid_columnconfigure(1, weight=1)
+        right.grid_columnconfigure(0, weight=1)
 
         self._section_title(left, "Configuração SMTP/IMAP", 0)
         self._entry(left, "SMTP host", "smtp_host", 1)
@@ -220,46 +240,62 @@ class DesktopApp(ctk.CTk):
         ctk.CTkButton(left, text="Testar SMTP", command=self.test_smtp).grid(row=7, column=0, padx=8, pady=8, sticky="ew")
         ctk.CTkButton(left, text="Testar IMAP", command=self.test_imap).grid(row=7, column=1, padx=8, pady=8, sticky="ew")
 
-        self._section_title(left, "Campanha", 8)
-        self._entry(left, "CSV de contatos", "csv_path", 9)
-        ctk.CTkButton(left, text="Selecionar CSV", command=self.select_csv).grid(row=10, column=1, sticky="e", padx=8, pady=(0, 8))
+        self._section_title(left, "Regras da campanha", 8)
+        self._entry(left, "Delay mínimo (s)", "delay_min", 9)
+        self._entry(left, "Delay máximo (s)", "delay_max", 10)
+        self._entry(left, "Pausa longa (s)", "long_pause_seconds", 11)
+        self._entry(left, "A cada X envios", "long_pause_every", 12)
+        self._entry(left, "Máx. e-mails na campanha", "max_per_campaign", 13)
 
-        self._entry(left, "Delay mínimo (s)", "delay_min", 11)
-        self._entry(left, "Delay máximo (s)", "delay_max", 12)
-        self._entry(left, "Pausa longa (s)", "long_pause_seconds", 13)
-        self._entry(left, "A cada X envios", "long_pause_every", 14)
-        self._entry(left, "Máx. e-mails na campanha", "max_per_campaign", 15)
+        self._section_title(left, "Planilha (colar dados)", 14)
+        ctk.CTkLabel(left, text="Cole aqui uma tabela (Excel/Sheets) com coluna 'email':").grid(row=15, column=0, columnspan=2, sticky="w", padx=8, pady=(6, 2))
+        self.grid_text = ctk.CTkTextbox(left, height=220)
+        self.grid_text.grid(row=16, column=0, columnspan=2, sticky="nsew", padx=8, pady=4)
+        self.grid_text.insert("1.0", GRID_EXAMPLE)
+
+        ctk.CTkButton(left, text="Validar planilha colada", command=self.validate_grid).grid(row=17, column=0, columnspan=2, padx=8, pady=(6, 8), sticky="ew")
 
         self._section_title(right, "Mensagem", 0)
-        ctk.CTkLabel(right, text="Assunto").grid(row=1, column=0, sticky="w", padx=8, pady=(8, 2))
-        self.subject_entry = ctk.CTkEntry(right)
-        self.subject_entry.grid(row=1, column=1, sticky="ew", padx=8, pady=(8, 2))
+        subject_line = ctk.CTkFrame(right)
+        subject_line.grid(row=1, column=0, sticky="ew", padx=8, pady=(8, 2))
+        subject_line.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(subject_line, text="Assunto").grid(row=0, column=0, sticky="w", padx=(0, 8))
+        self.subject_entry = ctk.CTkEntry(subject_line)
+        self.subject_entry.grid(row=0, column=1, sticky="ew")
 
-        ctk.CTkLabel(right, text="Corpo").grid(row=2, column=0, sticky="nw", padx=8, pady=2)
-        self.body_text = ctk.CTkTextbox(right, height=220)
-        self.body_text.grid(row=2, column=1, sticky="nsew", padx=8, pady=2)
+        toolbar = ctk.CTkFrame(right)
+        toolbar.grid(row=2, column=0, sticky="ew", padx=8, pady=(8, 4))
+        toolbar.grid_columnconfigure((0, 1, 2, 3, 4), weight=1)
+        ctk.CTkButton(toolbar, text="Negrito", command=lambda: self.wrap_selection("<strong>", "</strong>")).grid(row=0, column=0, padx=4, pady=4, sticky="ew")
+        ctk.CTkButton(toolbar, text="Itálico", command=lambda: self.wrap_selection("<em>", "</em>")).grid(row=0, column=1, padx=4, pady=4, sticky="ew")
+        ctk.CTkButton(toolbar, text="Parágrafo", command=lambda: self.wrap_selection("<p>", "</p>\n")).grid(row=0, column=2, padx=4, pady=4, sticky="ew")
+        ctk.CTkButton(toolbar, text="Lista", command=self.insert_list_block).grid(row=0, column=3, padx=4, pady=4, sticky="ew")
+        ctk.CTkButton(toolbar, text="Quebra linha", command=lambda: self.insert_at_cursor("<br>\n")).grid(row=0, column=4, padx=4, pady=4, sticky="ew")
+
+        ctk.CTkLabel(right, text="Editor HTML do corpo").grid(row=3, column=0, sticky="w", padx=8, pady=(4, 2))
+        self.body_text = ctk.CTkTextbox(right, height=210)
+        self.body_text.grid(row=4, column=0, sticky="ew", padx=8, pady=2)
 
         self.placeholder_label = ctk.CTkLabel(right, text="Placeholders: -")
-        self.placeholder_label.grid(row=3, column=1, sticky="w", padx=8, pady=(4, 10))
+        self.placeholder_label.grid(row=5, column=0, sticky="w", padx=8, pady=(4, 8))
 
         button_frame = ctk.CTkFrame(right)
-        button_frame.grid(row=4, column=0, columnspan=2, sticky="ew", padx=8, pady=8)
+        button_frame.grid(row=6, column=0, sticky="ew", padx=8, pady=8)
         button_frame.grid_columnconfigure((0, 1, 2), weight=1)
-
         ctk.CTkButton(button_frame, text="Iniciar campanha", command=self.start_campaign).grid(row=0, column=0, padx=4, pady=6, sticky="ew")
         ctk.CTkButton(button_frame, text="Pausar/Retomar", command=self.toggle_pause).grid(row=0, column=1, padx=4, pady=6, sticky="ew")
         ctk.CTkButton(button_frame, text="Parar", command=self.stop_campaign).grid(row=0, column=2, padx=4, pady=6, sticky="ew")
 
         self.progress = ctk.CTkProgressBar(right)
-        self.progress.grid(row=5, column=0, columnspan=2, sticky="ew", padx=8, pady=(4, 8))
+        self.progress.grid(row=7, column=0, sticky="ew", padx=8, pady=(4, 8))
         self.progress.set(0)
 
         self.counters_label = ctk.CTkLabel(right, text="Enviados: 0 | Falhas: 0 | Restantes: 0")
-        self.counters_label.grid(row=6, column=0, columnspan=2, sticky="w", padx=8, pady=(0, 8))
+        self.counters_label.grid(row=8, column=0, sticky="w", padx=8, pady=(0, 8))
 
-        ctk.CTkLabel(right, text="Log em tempo real").grid(row=7, column=0, sticky="w", padx=8, pady=(8, 2))
-        self.log_box = ctk.CTkTextbox(right, height=330)
-        self.log_box.grid(row=8, column=0, columnspan=2, sticky="nsew", padx=8, pady=(0, 8))
+        ctk.CTkLabel(right, text="Log em tempo real").grid(row=9, column=0, sticky="w", padx=8, pady=(8, 2))
+        self.log_box = ctk.CTkTextbox(right, height=280)
+        self.log_box.grid(row=10, column=0, sticky="nsew", padx=8, pady=(0, 8))
 
         self.subject_entry.bind("<KeyRelease>", lambda _e: self.update_placeholders())
         self.body_text.bind("<KeyRelease>", lambda _e: self.update_placeholders())
@@ -277,13 +313,13 @@ class DesktopApp(ctk.CTk):
 
     def _load_cfg_to_ui(self):
         for key, value in asdict(self.cfg).items():
-            if key in {"subject", "body"}:
+            if key in {"subject", "body_html"}:
                 continue
             self.vars[key].set(str(value))
         self.subject_entry.delete(0, "end")
         self.subject_entry.insert(0, self.cfg.subject)
         self.body_text.delete("1.0", "end")
-        self.body_text.insert("1.0", self.cfg.body)
+        self.body_text.insert("1.0", self.cfg.body_html)
         self.update_placeholders()
 
     def _read_ui_cfg(self) -> CampaignConfig:
@@ -294,9 +330,8 @@ class DesktopApp(ctk.CTk):
             password=self.vars["password"].get(),
             imap_host=self.vars["imap_host"].get().strip(),
             imap_port=int(self.vars["imap_port"].get().strip() or 993),
-            csv_path=self.vars["csv_path"].get().strip(),
-            subject=self.subject_entry.get(),
-            body=self.body_text.get("1.0", "end").rstrip(),
+            subject=self.subject_entry.get().strip(),
+            body_html=self.body_text.get("1.0", "end").rstrip(),
             delay_min=float(self.vars["delay_min"].get().strip() or 0),
             delay_max=float(self.vars["delay_max"].get().strip() or 0),
             long_pause_seconds=int(self.vars["long_pause_seconds"].get().strip() or 0),
@@ -305,6 +340,10 @@ class DesktopApp(ctk.CTk):
         )
         if cfg.delay_max < cfg.delay_min:
             raise RuntimeError("Delay máximo precisa ser maior ou igual ao mínimo.")
+        if not cfg.subject:
+            raise RuntimeError("Informe um assunto.")
+        if not cfg.body_html:
+            raise RuntimeError("Informe o corpo HTML do e-mail.")
         return cfg
 
     def update_placeholders(self):
@@ -312,10 +351,29 @@ class DesktopApp(ctk.CTk):
         text = ", ".join("{" + p + "}" for p in placeholders) if placeholders else "-"
         self.placeholder_label.configure(text=f"Placeholders: {text}")
 
-    def select_csv(self):
-        path = filedialog.askopenfilename(filetypes=[("CSV", "*.csv")])
-        if path:
-            self.vars["csv_path"].set(path)
+    def wrap_selection(self, open_tag: str, close_tag: str):
+        try:
+            start = self.body_text.index("sel.first")
+            end = self.body_text.index("sel.last")
+            selected = self.body_text.get(start, end)
+            self.body_text.delete(start, end)
+            self.body_text.insert(start, f"{open_tag}{selected}{close_tag}")
+        except Exception:
+            self.insert_at_cursor(f"{open_tag}{close_tag}")
+
+    def insert_list_block(self):
+        block = "<ul>\n  <li>Item 1</li>\n  <li>Item 2</li>\n</ul>\n"
+        self.insert_at_cursor(block)
+
+    def insert_at_cursor(self, text: str):
+        self.body_text.insert("insert", text)
+
+    def validate_grid(self):
+        try:
+            leads = parse_pasted_grid(self.grid_text.get("1.0", "end"))
+            self.log(f"Planilha válida com {len(leads)} linha(s).")
+        except Exception as exc:
+            messagebox.showerror("Planilha inválida", str(exc))
 
     def save_config(self):
         cfg = self._read_ui_cfg()
@@ -407,15 +465,17 @@ class DesktopApp(ctk.CTk):
         if not cfg:
             return
 
-        if not cfg.csv_path or not os.path.exists(cfg.csv_path):
-            messagebox.showerror("CSV", "Selecione um CSV válido.")
+        try:
+            leads = parse_pasted_grid(self.grid_text.get("1.0", "end"))
+        except Exception as exc:
+            messagebox.showerror("Planilha inválida", str(exc))
             return
 
         self.stop_event.clear()
         self.pause_event.clear()
         self.progress.set(0)
         self._set_counters(0, 0, 0)
-        self.worker_thread = threading.Thread(target=self._campaign_worker, args=(cfg,), daemon=True)
+        self.worker_thread = threading.Thread(target=self._campaign_worker, args=(cfg, leads), daemon=True)
         self.worker_thread.start()
 
     def toggle_pause(self):
@@ -445,14 +505,13 @@ class DesktopApp(ctk.CTk):
                 time.sleep(0.2)
             time.sleep(0.2)
 
-    def _campaign_worker(self, cfg: CampaignConfig):
+    def _campaign_worker(self, cfg: CampaignConfig, leads: list[dict[str, str]]):
         try:
-            leads = read_contacts(cfg.csv_path)
             pending = [r for r in leads if r.get("__email")]
             pending = pending[: cfg.max_per_campaign]
             total = len(pending)
             if total == 0:
-                self.log("Nenhum destinatário válido no CSV.")
+                self.log("Nenhum destinatário válido na planilha colada.")
                 return
 
             self._set_counters(0, 0, total)
@@ -474,11 +533,11 @@ class DesktopApp(ctk.CTk):
 
                 recipient = row.get("__email", "").strip()
                 subject = render_template(cfg.subject, row)
-                body = render_template(cfg.body, row)
+                body_html = render_template(cfg.body_html, row)
                 ts = now_iso()
 
                 try:
-                    client.send_email(recipient, subject, body)
+                    client.send_email(recipient, subject, body_html)
                     row["status"] = "enviado"
                     row["erro"] = ""
                     row["enviado_em"] = ts
@@ -497,7 +556,6 @@ class DesktopApp(ctk.CTk):
                 self.save_checkpoint(
                     {
                         "timestamp": now_iso(),
-                        "csv_path": cfg.csv_path,
                         "sent": sent,
                         "fail": fail,
                         "processed": sent + fail,
