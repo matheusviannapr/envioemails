@@ -17,6 +17,7 @@ from pathlib import Path
 from string import Formatter
 from tkinter import filedialog, messagebox
 from tkinter import ttk
+import tkinter as tk
 from typing import Any
 
 import customtkinter as ctk
@@ -276,6 +277,7 @@ class DesktopApp(ctk.CTk):
         x_scroll.grid(row=1, column=0, sticky="ew")
         self.tree.configure(yscrollcommand=y_scroll.set, xscrollcommand=x_scroll.set)
         self.tree.bind("<Double-1>", self._start_cell_edit)
+        self.tree.bind("<Button-1>", self._commit_cell_edit_if_open, add="+")
 
         ctk.CTkLabel(left, text="Dica: dê duplo clique em uma célula para editar.").grid(
             row=18, column=0, columnspan=2, sticky="w", padx=8, pady=(0, 8)
@@ -494,6 +496,7 @@ class DesktopApp(ctk.CTk):
         region = self.tree.identify("region", event.x, event.y)
         if region != "cell":
             return
+
         row_id = self.tree.identify_row(event.y)
         col_id = self.tree.identify_column(event.x)
         if not row_id or not col_id:
@@ -503,26 +506,60 @@ class DesktopApp(ctk.CTk):
         if col_index < 0 or col_index >= len(self.table_columns):
             return
 
-        x, y, width, height = self.tree.bbox(row_id, col_id)
+        bbox = self.tree.bbox(row_id, col_id)
+        if not bbox:
+            return
+        x, y, width, height = bbox
+
+        self._commit_cell_edit_if_open()
+
         value = self.tree.set(row_id, self.table_columns[col_index])
+        editor = tk.Entry(self.tree)
+        editor.insert(0, value)
+        editor.select_range(0, "end")
+        editor.focus_set()
+        editor.place(in_=self.tree, x=x, y=y, width=width, height=height)
 
-        if self._cell_editor:
-            self._cell_editor.destroy()
+        self._cell_editor = {
+            "widget": editor,
+            "row_id": row_id,
+            "col_index": col_index,
+        }
 
-        self._cell_editor = ctk.CTkEntry(self.tree)
-        self._cell_editor.place(x=x, y=y, width=width, height=height)
-        self._cell_editor.insert(0, value)
-        self._cell_editor.focus_set()
+        editor.bind("<Return>", lambda _e: self._commit_cell_edit_if_open())
+        editor.bind("<Escape>", lambda _e: self._cancel_cell_edit())
+        editor.bind("<FocusOut>", lambda _e: self._commit_cell_edit_if_open())
 
-        def save_edit(_event=None):
-            new_val = self._cell_editor.get().strip()
-            self.tree.set(row_id, self.table_columns[col_index], new_val)
-            self.table_rows[int(row_id)][self.table_columns[col_index]] = new_val
-            self._cell_editor.destroy()
+    def _cancel_cell_edit(self):
+        if not self._cell_editor:
+            return
+        widget = self._cell_editor.get("widget")
+        if widget:
+            widget.destroy()
+        self._cell_editor = None
+
+    def _commit_cell_edit_if_open(self, _event=None):
+        if not self._cell_editor:
+            return
+
+        widget = self._cell_editor.get("widget")
+        row_id = self._cell_editor.get("row_id")
+        col_index = self._cell_editor.get("col_index")
+
+        if not widget or row_id is None or col_index is None:
             self._cell_editor = None
+            return
 
-        self._cell_editor.bind("<Return>", save_edit)
-        self._cell_editor.bind("<FocusOut>", save_edit)
+        new_val = widget.get().strip()
+        col_name = self.table_columns[col_index]
+        self.tree.set(row_id, col_name, new_val)
+
+        row_idx = self.tree.index(row_id)
+        if 0 <= row_idx < len(self.table_rows):
+            self.table_rows[row_idx][col_name] = new_val
+
+        widget.destroy()
+        self._cell_editor = None
 
     def add_empty_row(self):
         if not self.table_columns:
