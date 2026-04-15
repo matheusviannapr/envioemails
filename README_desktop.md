@@ -20,10 +20,15 @@ python email_campaign_desktop.py
 
 - Configuração SMTP e IMAP pela UI
 - Teste de conexão SMTP/IMAP
-- **Planilha colada direto na interface** (copiar do Excel/Sheets e colar)
+- **Carregamento de CSV em formato de planilha editável** (duplo clique na célula para editar)
+- Botão para adicionar linha vazia manualmente
 - Assunto com placeholders (`{nome}`, `{empresa}`, etc.)
-- **Mini editor HTML** com atalhos para negrito, itálico, parágrafo, lista e quebra de linha
-- Envio do corpo como HTML (com versão texto simples de fallback)
+- **Editor do corpo em texto normal** (estilo e-mail) com atalhos:
+  - `Negrito` => `**texto**`
+  - `Itálico` => `*texto*`
+  - `Bullet` => `- item`
+- O app converte automaticamente o texto para HTML e envia como `text/html` (com fallback `text/plain`)
+- Preview do HTML antes do envio
 - Delay aleatório entre envios
 - Pausa longa automática por bloco
 - Controles de iniciar / pausar / parar
@@ -32,20 +37,6 @@ python email_campaign_desktop.py
   - `desktop_config.json`
   - `desktop_checkpoint.json`
   - `desktop_campaign.log`
-
-## Formato da planilha colada
-
-- A primeira linha deve ser o cabeçalho.
-- É obrigatório existir a coluna `email`.
-- Pode ser separado por TAB (padrão ao colar do Excel) e também aceita `;` ou `,`.
-
-Exemplo:
-
-```text
-email	nome	empresa
-ana@empresa.com	Ana	Empresa A
-bruno@empresa.com	Bruno	Empresa B
-```
 
 ## Build `.exe`
 
