@@ -22,6 +22,7 @@ python email_campaign_desktop.py
 - Teste de conexão SMTP/IMAP
 - **Carregamento de CSV em formato de planilha editável** (duplo clique na célula para editar)
 - Botão para adicionar linha vazia manualmente
+- **Colar planilha inteira via Ctrl+V** na área de planilha (Excel/Sheets)
 - Assunto com placeholders (`{nome}`, `{empresa}`, etc.)
 - **Editor do corpo em texto normal** (estilo e-mail) com atalhos:
   - `Negrito` => `**texto**`

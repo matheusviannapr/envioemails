@@ -278,9 +278,14 @@ class DesktopApp(ctk.CTk):
         self.tree.configure(yscrollcommand=y_scroll.set, xscrollcommand=x_scroll.set)
         self.tree.bind("<Double-1>", self._start_cell_edit)
         self.tree.bind("<Button-1>", self._commit_cell_edit_if_open, add="+")
+        self.tree.bind("<Control-v>", self._paste_from_clipboard_event)
+        self.tree.bind("<Command-v>", self._paste_from_clipboard_event)
 
         ctk.CTkLabel(left, text="Dica: dê duplo clique em uma célula para editar.").grid(
             row=18, column=0, columnspan=2, sticky="w", padx=8, pady=(0, 8)
+        )
+        ctk.CTkButton(left, text="Colar planilha (Ctrl+V)", command=self.paste_from_clipboard).grid(
+            row=19, column=0, columnspan=2, padx=8, pady=(0, 8), sticky="ew"
         )
 
         # Editor de corpo (texto) + conversão HTML
@@ -491,6 +496,68 @@ class DesktopApp(ctk.CTk):
         for i, row in enumerate(self.table_rows):
             values = [row.get(col, "") for col in self.table_columns]
             self.tree.insert("", "end", iid=str(i), values=values)
+
+    def _paste_from_clipboard_event(self, _event):
+        self.paste_from_clipboard()
+        return "break"
+
+    def _parse_clipboard_grid(self) -> list[list[str]]:
+        raw = self.clipboard_get()
+        lines = [line for line in raw.splitlines() if line.strip() != ""]
+        if not lines:
+            raise RuntimeError("Área de transferência vazia.")
+        return [line.split("\t") for line in lines]
+
+    def paste_from_clipboard(self):
+        try:
+            grid = self._parse_clipboard_grid()
+        except Exception as exc:
+            messagebox.showerror("Colar planilha", f"Não foi possível colar: {exc}")
+            return
+
+        # Sem tabela carregada: assume primeira linha como cabeçalho.
+        if not self.table_columns:
+            headers = [cell.strip() or f"col_{i+1}" for i, cell in enumerate(grid[0])]
+            self.table_columns = headers
+            self.table_rows = []
+            for row in grid[1:]:
+                record = {col: "" for col in self.table_columns}
+                for col_idx, col_name in enumerate(self.table_columns):
+                    if col_idx < len(row):
+                        record[col_name] = row[col_idx].strip()
+                self.table_rows.append(record)
+            self._render_table()
+            self.log(f"Planilha colada com {len(self.table_rows)} linha(s).")
+            return
+
+        # Tabela existente: cola bloco a partir da célula selecionada.
+        selected = self.tree.focus() or (self.tree.get_children()[0] if self.tree.get_children() else None)
+        if selected is None:
+            self.add_empty_row()
+            selected = self.tree.get_children()[0]
+
+        start_row = self.tree.index(selected)
+        start_col = 0
+
+        # tenta detectar coluna do clique atual se existir editor aberto
+        if self._cell_editor and self._cell_editor.get("col_index") is not None:
+            start_col = int(self._cell_editor["col_index"])
+
+        needed_rows = start_row + len(grid)
+        while len(self.table_rows) < needed_rows:
+            self.table_rows.append({col: "" for col in self.table_columns})
+
+        for r, row_vals in enumerate(grid):
+            row_idx = start_row + r
+            for c, value in enumerate(row_vals):
+                col_idx = start_col + c
+                if col_idx >= len(self.table_columns):
+                    break
+                col_name = self.table_columns[col_idx]
+                self.table_rows[row_idx][col_name] = value.strip()
+
+        self._render_table()
+        self.log(f"Bloco colado na planilha: {len(grid)}x{max(len(r) for r in grid)} célula(s).")
 
     def _start_cell_edit(self, event):
         region = self.tree.identify("region", event.x, event.y)
