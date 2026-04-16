@@ -49,9 +49,10 @@ class CampaignConfig:
 
 
 class SmtpImapClient:
-    def __init__(self, cfg: CampaignConfig):
+    def __init__(self, cfg: CampaignConfig, logger=None):
         self.cfg = cfg
         self.server: smtplib.SMTP | smtplib.SMTP_SSL | None = None
+        self.logger = logger
 
     def start(self):
         if self.cfg.smtp_port == 465:
@@ -80,31 +81,82 @@ class SmtpImapClient:
             if status != "OK":
                 raise RuntimeError("Não foi possível listar pastas IMAP")
 
-    def _resolve_sent_folder(self, imap: imaplib.IMAP4_SSL) -> str | None:
-        candidates = ["Sent", "Sent Items", "Enviados", "Itens Enviados"]
+    def _resolve_sent_folder(self, imap: imaplib.IMAP4_SSL) -> list[str]:
+        candidates = ["Sent", "Sent Items", "Enviados", "Itens Enviados", "INBOX.Sent"]
         status, folders = imap.list()
         if status != "OK" or not folders:
-            return None
-        for line in folders:
-            decoded = line.decode("utf-8", errors="ignore")
-            for candidate in candidates:
-                if candidate.lower() in decoded.lower():
-                    if '"' in decoded:
-                        parts = decoded.split('"')
-                        if len(parts) >= 3 and parts[-2].strip():
-                            return parts[-2].strip()
-                    return decoded.rsplit(" ", 1)[-1].strip().strip('"')
-        return None
+            return candidates
 
-    def _save_to_sent(self, msg_bytes: bytes):
+        def _decode(raw_line) -> str:
+            if isinstance(raw_line, bytes):
+                return raw_line.decode("utf-8", errors="ignore")
+            return str(raw_line)
+
+        decoded_lines = [_decode(line) for line in folders]
+        found: list[str] = []
+
+        # 1) RFC special-use flag \Sent
+        for line in decoded_lines:
+            if "\\sent" in line.lower():
+                if '"' in line:
+                    parts = line.split('"')
+                    if len(parts) >= 3 and parts[-2].strip():
+                        found.append(parts[-2].strip())
+                        continue
+                found.append(line.rsplit(" ", 1)[-1].strip().strip('"'))
+
+        # 2) Common names
+        for line in decoded_lines:
+            for candidate in candidates:
+                if candidate.lower() in line.lower():
+                    if '"' in line:
+                        parts = line.split('"')
+                        if len(parts) >= 3 and parts[-2].strip():
+                            found.append(parts[-2].strip())
+                            break
+                    found.append(line.rsplit(" ", 1)[-1].strip().strip('"'))
+                    break
+
+        # 3) Fallback candidates
+        for candidate in candidates:
+            found.append(candidate)
+
+        # remove duplicates preserving order
+        unique = []
+        seen = set()
+        for item in found:
+            cleaned = item.strip()
+            if cleaned and cleaned.lower() not in seen:
+                unique.append(cleaned)
+                seen.add(cleaned.lower())
+        return unique
+
+    def _save_to_sent(self, msg_bytes: bytes) -> bool:
         try:
             with imaplib.IMAP4_SSL(self.cfg.imap_host, self.cfg.imap_port) as imap:
                 imap.login(self.cfg.email, self.cfg.password)
-                sent_folder = self._resolve_sent_folder(imap)
-                if sent_folder:
-                    imap.append(sent_folder, r"\\Seen", imaplib.Time2Internaldate(time.time()), msg_bytes)
+                folders_to_try = self._resolve_sent_folder(imap)
+                for folder in folders_to_try:
+                    status, _ = imap.append(folder, r"\\Seen", imaplib.Time2Internaldate(time.time()), msg_bytes)
+                    if status == "OK":
+                        if self.logger:
+                            self.logger(f"E-mail salvo em Enviados via IMAP na pasta: {folder}")
+                        return True
+
+                # tenta criar pasta Sent e reaplicar append
+                imap.create("Sent")
+                status, _ = imap.append("Sent", r"\\Seen", imaplib.Time2Internaldate(time.time()), msg_bytes)
+                if status == "OK":
+                    if self.logger:
+                        self.logger("E-mail salvo em Enviados via IMAP na pasta criada: Sent")
+                    return True
         except Exception:
-            pass
+            if self.logger:
+                self.logger("Aviso: envio SMTP ok, mas não foi possível salvar em Enviados via IMAP.")
+            return False
+        if self.logger:
+            self.logger("Aviso: envio SMTP ok, mas IMAP não aceitou append em nenhuma pasta de enviados.")
+        return False
 
     def send_email(self, recipient: str, subject: str, body_html: str):
         if not self.server:
@@ -663,7 +715,7 @@ class DesktopApp(ctk.CTk):
 
         def _run():
             try:
-                client = SmtpImapClient(cfg)
+                client = SmtpImapClient(cfg, logger=self.log)
                 client.start()
                 client.login()
                 client.stop()
@@ -680,7 +732,7 @@ class DesktopApp(ctk.CTk):
 
         def _run():
             try:
-                client = SmtpImapClient(cfg)
+                client = SmtpImapClient(cfg, logger=self.log)
                 client.test_imap()
                 self.log("Teste IMAP: sucesso")
             except Exception as exc:
@@ -758,7 +810,7 @@ class DesktopApp(ctk.CTk):
 
             sent = 0
             fail = 0
-            client = SmtpImapClient(cfg)
+            client = SmtpImapClient(cfg, logger=self.log)
             client.start()
             client.login()
 

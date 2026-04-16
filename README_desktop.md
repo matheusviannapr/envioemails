@@ -20,6 +20,7 @@ python email_campaign_desktop.py
 
 - Configuração SMTP e IMAP pela UI
 - Teste de conexão SMTP/IMAP
+- Tentativa de salvar e-mail enviado na pasta de **Enviados** via IMAP (com log de sucesso/aviso)
 - **Carregamento de CSV em formato de planilha editável** (duplo clique na célula para editar)
 - Botão para adicionar linha vazia manualmente
 - **Colar planilha inteira via Ctrl+V** na área de planilha (Excel/Sheets)
