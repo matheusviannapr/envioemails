@@ -113,7 +113,7 @@ class SmtpImapClient:
                 return
             imap.append(
                 sent_folder,
-                r"\\Seen",
+                r"\Seen",
                 imaplib.Time2Internaldate(time.time()),
                 msg_bytes,
             )
