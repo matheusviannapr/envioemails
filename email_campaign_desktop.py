@@ -81,18 +81,18 @@ class SmtpImapClient:
             if status != "OK":
                 raise RuntimeError("Não foi possível listar pastas IMAP")
 
-    def _resolve_sent_folder(self, imap: imaplib.IMAP4_SSL) -> list[str]:
+    def _decode_folder_line(self, raw_line) -> str:
+        if isinstance(raw_line, bytes):
+            return raw_line.decode("utf-8", errors="ignore")
+        return str(raw_line)
+
+    def _resolve_sent_folder(self, imap: imaplib.IMAP4_SSL) -> str | None:
         candidates = ["Sent", "Sent Items", "Enviados", "Itens Enviados"]
         status, folders = imap.list()
         if status != "OK" or not folders:
-            return []
+            return None
 
-        parsed = []
-        for line in folders:
-            if isinstance(line, bytes):
-                parsed.append(line.decode("utf-8", errors="ignore"))
-            else:
-                parsed.append(str(line))
+        parsed = [self._decode_folder_line(line) for line in folders]
 
         for candidate in candidates:
             for line in parsed:
@@ -100,22 +100,23 @@ class SmtpImapClient:
                     if '"' in line:
                         parts = line.split('"')
                         if len(parts) >= 3 and parts[-2].strip():
-                            return [parts[-2].strip()]
+                            return parts[-2].strip()
                     fallback = line.rsplit(" ", 1)[-1].strip()
-                    return [fallback.strip('"')]
-        return []
+                    return fallback.strip('"')
+        return None
 
-    def _save_to_sent(self, msg_bytes: bytes) -> bool:
+    def _save_to_sent(self, msg_bytes: bytes):
         with imaplib.IMAP4_SSL(self.cfg.imap_host, self.cfg.imap_port) as imap:
             imap.login(self.cfg.email, self.cfg.password)
-            folders_to_try = self._resolve_sent_folder(imap)
-            for folder in folders_to_try:
-                status, _ = imap.append(folder, r"\\Seen", imaplib.Time2Internaldate(time.time()), msg_bytes)
-                if status == "OK":
-                    if self.logger:
-                        self.logger(f"E-mail salvo em Enviados via IMAP na pasta: {folder}")
-                    return True
-        return False
+            sent_folder = self._resolve_sent_folder(imap)
+            if not sent_folder:
+                return
+            imap.append(
+                sent_folder,
+                r"\\Seen",
+                imaplib.Time2Internaldate(time.time()),
+                msg_bytes,
+            )
 
     def send_email(self, recipient: str, subject: str, body_html: str):
         if not self.server:
@@ -132,12 +133,9 @@ class SmtpImapClient:
 
         self.server.sendmail(self.cfg.email, recipient, msg.as_string())
         try:
-            saved = self._save_to_sent(msg.as_bytes())
-            if self.logger and not saved:
-                self.logger("Aviso: envio SMTP ok, mas não foi encontrada pasta de Enviados compatível no IMAP.")
+            self._save_to_sent(msg.as_bytes())
         except Exception:
-            if self.logger:
-                self.logger("Aviso: envio SMTP ok, mas IMAP falhou ao salvar na pasta de Enviados.")
+            pass
 
 
 def now_iso() -> str:
