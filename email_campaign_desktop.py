@@ -105,18 +105,25 @@ class SmtpImapClient:
                     return fallback.strip('"')
         return None
 
-    def _save_to_sent(self, msg_bytes: bytes):
-        with imaplib.IMAP4_SSL(self.cfg.imap_host, self.cfg.imap_port) as imap:
-            imap.login(self.cfg.email, self.cfg.password)
-            sent_folder = self._resolve_sent_folder(imap)
-            if not sent_folder:
-                return
-            imap.append(
-                sent_folder,
-                r"\Seen",
-                imaplib.Time2Internaldate(time.time()),
-                msg_bytes,
-            )
+    def _save_to_sent(self, msg_bytes: bytes) -> bool:
+        # Alguns provedores falham no primeiro APPEND após autenticação.
+        # Fazemos 2 tentativas para reduzir perda do primeiro envio na pasta Enviados.
+        for _ in range(2):
+            with imaplib.IMAP4_SSL(self.cfg.imap_host, self.cfg.imap_port) as imap:
+                imap.login(self.cfg.email, self.cfg.password)
+                sent_folder = self._resolve_sent_folder(imap)
+                if not sent_folder:
+                    return False
+                status, _ = imap.append(
+                    sent_folder,
+                    r"\Seen",
+                    imaplib.Time2Internaldate(time.time()),
+                    msg_bytes,
+                )
+                if status == "OK":
+                    return True
+            time.sleep(0.5)
+        return False
 
     def send_email(self, recipient: str, subject: str, body_html: str):
         if not self.server:
